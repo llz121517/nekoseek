@@ -60,9 +60,8 @@ SESSION_CLEANUP_AGE = 600  # /秒 循环清理过期 Session 的间隔
 # ====== DSH 上游配置 ======
 # DSH webui 监听地址（默认 127.0.0.1:3080）
 DSH_UPSTREAM = os.getenv("DSH_UPSTREAM", "http://127.0.0.1:3080")
-# 托管 dsh 进程时使用的启动命令与参数
-DSH_COMMAND = os.getenv("DSH_COMMAND", "dsh")
-DSH_ARGS = ["web"]
+# 托管 dsh 进程时使用的完整启动命令（含参数，如 "dsh web"）
+DSH_COMMAND = os.getenv("DSH_COMMAND", "dsh web")
 # 是否在网关启动时自动拉起 DSH
 DSH_AUTOSTART = os.getenv("DSH_AUTOSTART", "0") == "1"
 

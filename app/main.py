@@ -89,7 +89,7 @@ async def admin_page():
 # LLM 上游反代（DSH 通过 DEEPSEEK_BASE_URL 指向本网关 /llm）
 @app.api_route(
     f"{LLM_PROXY_PATH}/{{path:path}}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    methods=["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     tags=["proxy"],
 )
 async def llm_proxy(request: Request, path: str):
@@ -110,7 +110,7 @@ async def ws_events_host(websocket: WebSocket):
 # DSH webui 反代（含鉴权 + HTML 注入）
 @app.api_route(
     "/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    methods=["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     tags=["proxy"],
 )
 async def webui_proxy(request: Request, path: str, _: dict = Depends(get_current_user_or_redirect)):
