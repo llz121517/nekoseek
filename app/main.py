@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from slowapi.errors import RateLimitExceeded
+from starlette.websockets import WebSocket
 
 from app.config import (
     ALLOW_ORIGINS,
@@ -26,6 +27,7 @@ from app.core.session import start_cleanup_worker
 from app.core.db.init_db import init_db
 from app.services import dsh_process
 from app.services.proxy import proxy_webui, proxy_llm
+from app.services.ws_proxy import proxy_ws
 
 app = FastAPI(
     title=TITLE,
@@ -92,6 +94,17 @@ async def admin_page():
 )
 async def llm_proxy(request: Request, path: str):
     return await proxy_llm(request, path)
+
+
+# DSH WebSocket 隧道（必须在 catch-all HTTP 路由之前注册，保证 Upgrade 优先匹配）
+@app.websocket("/api/events.mux")
+async def ws_events_mux(websocket: WebSocket):
+    await proxy_ws(websocket, "/api/events.mux")
+
+
+@app.websocket("/api/events.host")
+async def ws_events_host(websocket: WebSocket):
+    await proxy_ws(websocket, "/api/events.host")
 
 
 # DSH webui 反代（含鉴权 + HTML 注入）

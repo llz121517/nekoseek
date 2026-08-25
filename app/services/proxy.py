@@ -42,6 +42,15 @@ def _forward_headers(request: Request) -> dict:
     }
 
 
+def _set_header(headers: dict, name: str, value: str) -> None:
+    """大小写无关地覆盖一个请求头，避免旧键残留。"""
+    lower = name.lower()
+    for k in list(headers.keys()):
+        if k.lower() == lower:
+            del headers[k]
+    headers[name] = value
+
+
 def _response_headers(upstream: httpx.Response) -> dict:
     """提取响应头，剥离逐跳头。"""
     return {
@@ -129,6 +138,10 @@ async def proxy_webui(request: Request, path: str) -> Response:
 
     body = await request.body()
     headers = _forward_headers(request)
+    # DSH 会校验 Origin 与自身同源，否则返回 403。这里将浏览器带来的
+    # 网关地址 Origin 重写为上游地址，Referer 一并重写保持一致。
+    _set_header(headers, "origin", DSH_UPSTREAM)
+    _set_header(headers, "referer", DSH_UPSTREAM + "/")
 
     upstream = await _webui_client.send(
         _webui_client.build_request(request.method, url, headers=headers, content=body),
