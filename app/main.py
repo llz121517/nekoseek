@@ -124,9 +124,26 @@ async def favicon():
     return FileResponse(STATIC_DIR / "favicon.ico")
 
 
+# DSH RPC prompt 端点路径后缀：只有这类请求消耗模型配额，超限时才拦截；
+# 页面导航、静态资源、其它 API 一律放行。
+_PROMPT_PATH_SUFFIXES = ("/api/session.prompt", "/api/subagent.prompt")
+
+
+def _is_prompt_request(request: Request, path: str) -> bool:
+    if request.method != "POST":
+        return False
+    full = "/" + path if path else "/"
+    return full.endswith(_PROMPT_PATH_SUFFIXES)
+
+
 @app.websocket("/{path:path}")
 async def ws_tunnel(websocket: WebSocket, path: str):
-    """WebSocket 隧道：任意 Upgrade 路径都透明转发，需先鉴权。"""
+    """
+    WebSocket 隧道：任意 Upgrade 路径都透明转发，需先鉴权。
+    注意：不在此做配额拦截 —— mux/host 事件流是所有页面数据（工作区/历史）
+    的下行通道，超限关闭会导致整个前端不可用。超限拦截只针对会消耗配额的
+    HTTP RPC prompt 端点（见 webui_proxy）。
+    """
     sid = websocket.cookies.get("session_id")
     user_id = get_session_user_id(sid) if sid else None
     if user_id is None:
@@ -136,49 +153,33 @@ async def ws_tunnel(websocket: WebSocket, path: str):
     if user is None or not user.get("status"):
         await websocket.close(code=4401)
         return
-    if not quota.check_user_quota(user) or not quota.check_global_quota():
-        await websocket.close(code=4429)
-        return
     await proxy_ws(websocket, "/" + path, user)
 
 
-def _quota_guard_user(request: Request) -> dict:
-    """
-    webui 代理专用依赖：登录校验 + 配额预检。超限直接 429 JSON。
-    通过后把 user 挂在 request.state，供 handler 透传给 proxy。
-    """
-    user = get_current_user_or_redirect(request)
-    if not quota.check_user_quota(user) or not quota.check_global_quota():
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=429,
-            detail={"code": 0, "msg": "配额已用完，请等待窗口重置或联系管理员"},
-        )
-    request.state.quota_user = user
-    return user
-
-
-@app.exception_handler(429)
-async def quota_exceeded_handler(request: Request, exc):
-    """把 429 detail 规范为项目统一的 {code,msg} JSON。"""
-    detail = getattr(exc, "detail", None)
-    if isinstance(detail, dict) and "code" in detail:
-        return JSONResponse(status_code=429, content=detail)
-    return JSONResponse(status_code=429, content={"code": 0, "msg": str(detail or "quota exceeded")})
-
-
-@app.get("/")
+@app.get("/", dependencies=[Depends(get_current_user_or_redirect)])
 async def webui_root(request: Request):
     """根路径：透传给 DSH。"""
-    user = _quota_guard_user(request)
-    return await proxy_webui(request, "", user)
+    return await proxy_webui(request, "")
 
 
 @app.api_route(
     "/{path:path}",
     methods=["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    dependencies=[Depends(get_current_user_or_redirect)],
 )
 async def webui_proxy(request: Request, path: str):
-    """HTTP catch-all：所有剩余请求透传给 DSH webui。"""
-    user = _quota_guard_user(request)
-    return await proxy_webui(request, path, user)
+    """
+    HTTP catch-all：所有剩余请求透传给 DSH webui。
+    仅 RPC prompt 端点做配额预检，超限返回 429；其余请求一律放行。
+    """
+    if _is_prompt_request(request, path):
+        # get_current_user_or_redirect 已在 dependencies 里跑过，这里再解一次拿 user
+        from app.core.auth import _resolve_current_user
+        user = _resolve_current_user(request)
+        if user and (not quota.check_user_quota(user) or not quota.check_global_quota()):
+            return JSONResponse(
+                status_code=429,
+                content={"code": 0, "msg": "配额已用完，请等待窗口重置或联系管理员"},
+            )
+        return await proxy_webui(request, path, user)
+    return await proxy_webui(request, path)
