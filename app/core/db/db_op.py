@@ -122,7 +122,14 @@ def update_user(
     group_id: int | None = None,
     quota_override: int | None = None,
     status: int | None = None,
+    *,
+    _quota_override_set: bool = False,
 ) -> bool:
+    """
+    password/group_id/status 以 None 表示"不改"；
+    quota_override 比较特殊（None 既是合法值也是默认"不改"），
+    由 _quota_override_set 显式标记本次是否要写入（含写入 None 表示清除覆写）。
+    """
     conn = get_data_conn()
     parts, params = [], []
     if password is not None:
@@ -134,7 +141,7 @@ def update_user(
     if group_id is not None:
         parts.append("group_id = ?")
         params.append(group_id)
-    if quota_override is not None:
+    if _quota_override_set:
         parts.append("quota_override = ?")
         params.append(quota_override)
     if status is not None:

@@ -24,10 +24,6 @@ async def panel_me(user: dict = Depends(get_current_user)):
             "username": user["username"],
             "window": summary["window"],
             "window_start": summary["window_start"],
-            # 兼容旧前端字段
-            "quota_limit": summary["user"]["limit"],
-            "used_quota": summary["user"]["used"],
-            "remaining": summary["user"]["remaining"],
             "user": summary["user"],
             "pool": summary["pool"],
         },

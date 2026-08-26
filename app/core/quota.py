@@ -28,10 +28,49 @@ def get_window_kind() -> str:
 
 
 def set_window_kind(kind: str) -> None:
+    """
+    切换窗口类型。会把旧窗口的用量"携带"到新窗口：把旧窗口累计值
+    作为新窗口的初始量写入，避免用户跨窗口重复占用额度。
+    """
     kind = (kind or "").strip().lower()
     if kind not in WINDOW_KINDS:
         raise ValueError(f"非法窗口类型: {kind}")
+
+    old_kind = get_window_kind()
+    if old_kind == kind:
+        return
+
+    now = time.time()
+    old_ws = current_window_start(old_kind, now)
+    new_ws = current_window_start(kind, now)
+
+    # 把旧窗口的每一行（含全局 user_id=0）写入新窗口作为起点
+    conn_rows = db_op.list_window_usage(old_ws) + [db_op.get_usage(0, old_ws)]
+    for row in conn_rows:
+        total = row.get("total_tokens", 0)
+        if total <= 0:
+            continue
+        existing = db_op.get_usage(row["user_id"], new_ws)
+        # 已存在则跳过（避免重复携带）；否则把旧值作为新窗口起点
+        if existing.get("total_tokens", 0) > 0:
+            continue
+        db_op.add_usage(
+            row["user_id"],
+            new_ws,
+            row.get("input_tokens", 0),
+            row.get("output_tokens", 0),
+        )
+
     db_op.set_setting("quota_window", kind)
+
+
+def reset_current_window_usage() -> int:
+    """
+    清空当前窗口下所有用户与全局池的用量，返回清理的行数。
+    """
+    kind = get_window_kind()
+    ws = current_window_start(kind)
+    return db_op.delete_window_usage(ws)
 
 
 def current_window_start(kind: str | None = None, now: float | None = None) -> int:

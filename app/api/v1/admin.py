@@ -115,7 +115,11 @@ async def get_user(user_id: int):
 
 @router.put("/users/{user_id}")
 async def update_user(user_id: int, payload: UserUpdate):
+    # 不能用 exclude_unset：quota_override 显式传 null 表示"清除覆写、继承组"，
+    # 必须区分"没传"和"传了 null"。
     data = payload.model_dump(exclude_unset=True)
+    if "quota_override" in payload.model_fields_set:
+        data["quota_override"] = payload.quota_override  # 可能是 None
     target = db_op.get_user_by_id(user_id)
     if target is None:
         return {"code": 0, "msg": "用户不存在"}
@@ -125,7 +129,14 @@ async def update_user(user_id: int, payload: UserUpdate):
     if _would_remove_last_admin(user_id, new_group_id, new_status):
         return {"code": 0, "msg": "不能移除最后一个管理员"}
 
-    ok = db_op.update_user(user_id, **data)
+    ok = db_op.update_user(
+        user_id,
+        password=data.get("password"),
+        group_id=data.get("group_id"),
+        status=data.get("status"),
+        quota_override=data.get("quota_override"),
+        _quota_override_set="quota_override" in data,
+    )
     return {"code": 1 if ok else 0, "msg": "更新成功" if ok else "未变更"}
 
 

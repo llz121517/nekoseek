@@ -107,13 +107,9 @@ async def _pump(upstream, downstream: WebSocket, user: dict | None = None) -> No
                 text = str(message)
                 await downstream.send_text(text)
                 if user is not None:
-                    # 临时调试：记录前 200 字符看真实帧结构
-                    if '"assistant' in text or '"usage"' in text:
-                        logger.info("WS frame: %s", text[:400])
                     usage = _extract_assistant_message(text)
                     if usage is not None:
                         prompt_tok, completion_tok = usage
-                        logger.info("WS usage extracted: prompt=%s completion=%s", prompt_tok, completion_tok)
                         if prompt_tok > 0 or completion_tok > 0:
                             quota.record_usage(
                                 user["id"],

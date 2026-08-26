@@ -132,6 +132,11 @@ function selectUser(id) {
   $('#editPassword').value = '';
 }
 
+// 切换目标用户时同步表单为该用户当前值
+$('#editUserSelect').addEventListener('change', () => {
+  selectUser(parseInt($('#editUserSelect').value));
+});
+
 async function deleteUser(id) {
   if (!confirm(`确认删除用户 #${id}？`)) return;
   const r = await api(`/api/v1/admin/users/${id}`, { method: 'DELETE' });
@@ -146,7 +151,8 @@ $('#saveUser').addEventListener('click', async () => {
     status: parseInt($('#editStatus').value),
   };
   const q = $('#editQuota').value;
-  if (q !== '') body.quota_override = parseInt(q);
+  // 留空 = 继承组：显式发 null 让后端清除覆写；fillna 除外
+  body.quota_override = q === '' ? null : parseInt(q);
   const pw = $('#editPassword').value;
   if (pw !== '') body.password = pw;
   const r = await api(`/api/v1/admin/users/${id}`, { method: 'PUT', body: JSON.stringify(body) });

@@ -103,7 +103,7 @@ async def login(request: Request, response: Response, payload: LoginIn):
 def _derive_dummy_credentials(username: str) -> tuple[str, str]:
     """
     为不存在的用户生成确定性 dummy 凭据，格式与真实凭据一致（64 hex hash + 32 hex salt），
-    保证 PBKDF2 输入长度固定，避免计算时间因输入长度不同而泄露信息。
+    保证 PBKDF2 输入长度固定，防止时间侧信道攻击
     """
     digest = pbkdf2_hmac(
         "sha256",
