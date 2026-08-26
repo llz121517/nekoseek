@@ -21,6 +21,7 @@ from app.config import (
     DSH_AUTOSTART,
 )
 from app.services import dsh_process
+from app.services.dsh_env import sync_dsh_env
 from app.services.proxy import proxy_webui, probe_upstream
 from app.services.ws_proxy import proxy_ws
 
@@ -29,6 +30,7 @@ logger = logging.getLogger("nekoseek")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    sync_dsh_env()
     if DSH_AUTOSTART:
         result = dsh_process.start()
         if not result.get("running"):
