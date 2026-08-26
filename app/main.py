@@ -20,6 +20,7 @@ from starlette.websockets import WebSocket
 
 from app.api.v1 import admin as admin_api
 from app.api.v1 import auth as auth_api
+from app.api.v1 import panel as panel_api
 from app.config import (
     TITLE, VERSION, DESCRIPTION,
     DOCS_URL, REDOC_URL, OPENAPI_URL,
@@ -97,6 +98,8 @@ async def healthz(request: Request):
 
 app.include_router(auth_api.router)
 app.include_router(admin_api.router)
+# 面板接口必须在 WS/HTTP catch-all 之前注册，否则会被透传给 DSH。
+app.include_router(panel_api.router)
 app.state.limiter = auth_api.limiter
 
 

@@ -1,15 +1,19 @@
 # app/services/proxy.py
 """
 HTTP 透明反代：DSH webui 全部请求透传。
+
+对顶层导航的 HTML 响应（sec-fetch-dest=document）缓冲并注入用户信息面板；
+其余请求（SSE、JS、CSS、XHR 片段等）一律流式透传。
 """
 import logging
 import time
 
 import httpx
 from fastapi import Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.config import DSH_UPSTREAM, DSH_ORIGIN
+from app.services.inject import inject_panel_tags
 
 logger = logging.getLogger("nekoseek.proxy")
 
@@ -92,9 +96,10 @@ async def probe_upstream() -> tuple[bool, float | None]:
         return False, None
 
 
-async def proxy_webui(request: Request, path: str) -> StreamingResponse:
+async def proxy_webui(request: Request, path: str) -> Response:
     """
-    将请求转发到 DSH webui 上游。所有响应统一走 StreamingResponse 流式透传。
+    将请求转发到 DSH webui 上游。
+    顶层导航 HTML 缓冲后注入用户信息面板；其余响应流式透传。
     上游不可达时返回 502 Bad Gateway。
     """
     url = "/" + path if path else "/"
@@ -120,6 +125,23 @@ async def proxy_webui(request: Request, path: str) -> StreamingResponse:
             content={"code": 0, "msg": f"DSH upstream unavailable: {e}"},
         )
 
+    if _should_inject(request, upstream.headers.get("content-type", "")):
+        try:
+            text = (await upstream.aread()).decode(
+                upstream.charset_encoding or "utf-8", errors="replace"
+            )
+        finally:
+            await upstream.aclose()
+        text = inject_panel_tags(text)
+        resp_headers = _response_headers(upstream)
+        _rewrite_location(resp_headers, request)
+        return Response(
+            content=text,
+            status_code=upstream.status_code,
+            media_type="text/html",
+            headers=resp_headers,
+        )
+
     resp_headers = _response_headers(upstream)
     _rewrite_location(resp_headers, request)
     return StreamingResponse(
@@ -127,3 +149,22 @@ async def proxy_webui(request: Request, path: str) -> StreamingResponse:
         status_code=upstream.status_code,
         headers=resp_headers,
     )
+
+
+def _should_inject(request: Request, content_type: str) -> bool:
+    """
+    只对顶层导航的 HTML 文档注入面板脚本。
+    DSH 是 SPA，XHR/fetch 拉取的 HTML 片段 sec-fetch-dest 为 empty，
+    注入到片段里会导致脚本重复执行，必须排除。
+    """
+    if request.method != "GET":
+        return False
+    if "text/html" not in content_type:
+        return False
+    dest = request.headers.get("sec-fetch-dest")
+    if dest is not None:
+        return dest == "document"
+    # 老浏览器无 sec-fetch-* 头时降级判断
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return False
+    return "text/html" in request.headers.get("accept", "")

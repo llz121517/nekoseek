@@ -1,0 +1,29 @@
+# app/api/v1/panel.py
+"""
+用户信息面板接口：向注入 EBUI 页面的右下角逐板提供当前用户数据。
+"""
+from fastapi import APIRouter, Depends
+
+from app.core.auth import get_current_user
+from app.core.db import db_op
+
+router = APIRouter(prefix="/api/v1/panel", tags=["panel", "api_v1"])
+
+
+@router.get("/me")
+async def panel_me(user: dict = Depends(get_current_user)):
+    """
+    返回当前登录用户的面板数据。quota_limit 为 0 表示不限。
+    """
+    quota_limit = db_op.get_effective_user_quota(user)
+    used = user.get("used_quota", 0)
+    return {
+        "code": 1,
+        "msg": "ok",
+        "data": {
+            "username": user["username"],
+            "quota_limit": quota_limit,
+            "used_quota": used,
+            "remaining": (quota_limit - used) if quota_limit > 0 else None,
+        },
+    }

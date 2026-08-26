@@ -1,0 +1,103 @@
+/* NekoSeek EBUI 注入面板样式 */
+
+#nekoseek-panel {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  z-index: 99999;
+  width: 220px;
+  background: rgba(15, 23, 42, 0.92);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  font: 12px/1.6 sans-serif;
+  color: #cbd5e1;
+  backdrop-filter: blur(4px);
+}
+
+#nekoseek-panel .nsp-head {
+  padding: 8px 14px 0;
+}
+
+#nekoseek-panel .nsp-brand {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+#nekoseek-panel .nsp-body {
+  padding: 6px 14px 12px;
+}
+
+#nekoseek-panel .nsp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0;
+}
+
+#nekoseek-panel .nsp-row > span {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+#nekoseek-panel .nsp-row > b {
+  font-weight: 500;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#nekoseek-panel .nsp-user {
+  margin-bottom: 4px;
+}
+
+#nekoseek-panel .nsp-user > b {
+  font-size: 13px;
+}
+
+#nekoseek-panel .nsp-bar {
+  height: 6px;
+  background: #1e293b;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 6px 0 10px;
+}
+
+#nekoseek-panel .nsp-bar-fill {
+  height: 100%;
+  width: 0;
+  background: #38bdf8;
+  transition: width 0.3s ease;
+}
+
+#nekoseek-panel .nsp-bar-fill.nsp-danger {
+  background: #ef4444;
+}
+
+#nekoseek-panel .nsp-logout {
+  display: block;
+  width: 100%;
+  padding: 5px 0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: transparent;
+  color: #cbd5e1;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+#nekoseek-panel .nsp-logout:hover {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+}
+
+#nekoseek-panel .nsp-logout:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
