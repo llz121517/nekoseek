@@ -24,6 +24,9 @@
       collapse: '收起',
       expand: '展开面板',
       contactAdmin: '全局额度已用完，请联系管理员',
+      windowLabel: '窗口',
+      windowName: { '5h': '每5小时', 'day': '按天', 'week': '按周', 'month': '按月' },
+      poolLabel: '全局',
     },
     'en': {
       quota: 'Quota',
@@ -35,6 +38,9 @@
       collapse: 'Collapse',
       expand: 'Expand panel',
       contactAdmin: 'Global quota exhausted, please contact the administrator',
+      windowLabel: 'Window',
+      windowName: { '5h': 'Every 5h', 'day': 'Daily', 'week': 'Weekly', 'month': 'Monthly' },
+      poolLabel: 'Global',
     },
   };
 
@@ -62,10 +68,17 @@
     return dict[key] || I18N['en'][key] || key;
   }
 
+  function windowName(kind) {
+    var dict = I18N[currentLang] || I18N['en'];
+    var m = dict.windowName || I18N['en'].windowName;
+    return m[kind] || kind;
+  }
+
   // ---------- 面板 DOM ----------
 
   var panel = null;
   var usernameEl, quotaEl, usedEl, barFillEl, logoutBtn, quotaLabelEl, usedLabelEl, toggleBtn, noticeEl;
+  var windowEl, poolLabelEl, poolEl, poolBarFillEl;
   var collapsed = false;
 
   try { collapsed = localStorage.getItem(COLLAPSED_KEY) === '1'; } catch (e) {}
@@ -96,6 +109,9 @@
     userRow.className = 'nsp-row nsp-user';
     usernameEl = document.createElement('b');
     userRow.appendChild(usernameEl);
+    windowEl = document.createElement('span');
+    windowEl.className = 'nsp-window';
+    userRow.appendChild(windowEl);
     body.appendChild(userRow);
 
     var quotaRow = document.createElement('div');
@@ -120,6 +136,21 @@
     barFillEl.className = 'nsp-bar-fill';
     bar.appendChild(barFillEl);
     body.appendChild(bar);
+
+    var poolRow = document.createElement('div');
+    poolRow.className = 'nsp-row';
+    poolLabelEl = document.createElement('span');
+    poolEl = document.createElement('b');
+    poolRow.appendChild(poolLabelEl);
+    poolRow.appendChild(poolEl);
+    body.appendChild(poolRow);
+
+    var poolBar = document.createElement('div');
+    poolBar.className = 'nsp-bar';
+    poolBarFillEl = document.createElement('div');
+    poolBarFillEl.className = 'nsp-bar-fill nsp-pool';
+    poolBar.appendChild(poolBarFillEl);
+    body.appendChild(poolBar);
 
     noticeEl = document.createElement('div');
     noticeEl.className = 'nsp-notice';
@@ -148,6 +179,7 @@
     panel.querySelector('.nsp-brand').textContent = t('brand');
     quotaLabelEl.textContent = t('quota');
     usedLabelEl.textContent = t('used');
+    poolLabelEl.textContent = t('poolLabel');
     logoutBtn.textContent = logoutBtn.disabled ? t('loggingOut') : t('logout');
     noticeEl.textContent = t('contactAdmin');
     updateToggleBtn();
@@ -174,9 +206,11 @@
     if (!panel.isConnected) return;
 
     usernameEl.textContent = data.username || '';
+    windowEl.textContent = data.window ? ('· ' + windowName(data.window)) : '';
 
-    var limit = data.quota_limit || 0;
-    var used = data.used_quota || 0;
+    var user = data.user || { used: data.used_quota || 0, limit: data.quota_limit || 0 };
+    var limit = user.limit || 0;
+    var used = user.used || 0;
 
     if (limit > 0) {
       quotaEl.textContent = String(limit);
@@ -191,10 +225,23 @@
       barFillEl.classList.remove('nsp-danger');
     }
 
-    // 全局额度预留提示：全局已用完但个人仍有剩余时提示联系管理员。
-    // 当前后端 pool 恒为 {limit:0,used:0,remaining:null}（不限），不触发。
+    // 全局池进度条：limit<=0 表示不限（不渲染进度）。
     var pool = data.pool || {};
-    var poolExhausted = pool.limit > 0 && pool.remaining !== null && pool.remaining <= 0;
+    var pLimit = pool.limit || 0;
+    var pUsed = pool.used || 0;
+    if (pLimit > 0) {
+      poolEl.textContent = pUsed + ' / ' + pLimit;
+      var pPct = Math.min(100, Math.round(pUsed / pLimit * 100));
+      poolBarFillEl.style.width = pPct + '%';
+      poolBarFillEl.classList.toggle('nsp-danger', pPct >= 90);
+    } else {
+      poolEl.textContent = t('unlimited');
+      poolBarFillEl.style.width = '0%';
+      poolBarFillEl.classList.remove('nsp-danger');
+    }
+
+    // 全局已用完但个人仍有剩余时提示联系管理员。
+    var poolExhausted = pLimit > 0 && pool.remaining !== null && pool.remaining <= 0;
     var personalLeft = limit <= 0 || (limit - used) > 0;
     noticeEl.hidden = !(poolExhausted && personalLeft);
   }

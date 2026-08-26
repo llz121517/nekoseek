@@ -4,7 +4,10 @@
 """
 import sqlite3
 
-from app.config import ADMIN_USERNAME, ADMIN_PASSWORD, DATA_DB_PATH, CACHE_DB_PATH, DB_DIR
+from app.config import (
+    ADMIN_USERNAME, ADMIN_PASSWORD, DATA_DB_PATH, CACHE_DB_PATH, DB_DIR,
+    QUOTA_WINDOW, GLOBAL_QUOTA_LIMIT,
+)
 from app.core.db.db import get_data_conn, get_cache_conn
 from app.core.security import hash_password
 
@@ -24,7 +27,6 @@ CREATE TABLE IF NOT EXISTS users (
     salt           TEXT NOT NULL,
     group_id       INTEGER NOT NULL,
     quota_override INTEGER,
-    used_quota     INTEGER NOT NULL DEFAULT 0,
     status         INTEGER NOT NULL DEFAULT 1,
     created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (group_id) REFERENCES groups(id)
@@ -54,6 +56,25 @@ CREATE TABLE IF NOT EXISTS invite_code_uses (
 );
 CREATE INDEX IF NOT EXISTS idx_invite_code_uses_code ON invite_code_uses(invite_code_id);
 CREATE INDEX IF NOT EXISTS idx_invite_code_uses_user ON invite_code_uses(user_id);
+
+-- 窗口化用量记账：user_id=0 表示全局池聚合行
+CREATE TABLE IF NOT EXISTS usage_records (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL,
+    window_start  INTEGER NOT NULL,
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens  INTEGER NOT NULL DEFAULT 0,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, window_start)
+);
+CREATE INDEX IF NOT EXISTS idx_usage_user ON usage_records(user_id, window_start);
+
+-- 运行时可变设置（quota_window / global_quota_limit 等）
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 CACHE_SQL = """
@@ -67,9 +88,33 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 """
 
 
+def _migrate_users_drop_used_quota(conn) -> None:
+    """
+    旧版本 users 表带 used_quota 列（从未被写入）。SQLite 3.35+ 支持 DROP COLUMN，
+    用 PRAGMA table_info 守护，存在则删。
+    """
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "used_quota" in cols:
+        conn.execute("ALTER TABLE users DROP COLUMN used_quota")
+        conn.commit()
+
+
+def _seed_settings(conn) -> None:
+    """
+    仅在 settings 表为空时，用环境变量播种窗口与全局限额；之后以后台修改为准。
+    """
+    cur = conn.execute("SELECT COUNT(*) AS c FROM settings")
+    if cur.fetchone()["c"] == 0:
+        conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("quota_window", QUOTA_WINDOW))
+        conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("global_quota_limit", str(GLOBAL_QUOTA_LIMIT)))
+        conn.commit()
+
+
 def _init_data_db() -> None:
     conn = get_data_conn()
     conn.executescript(USER_SQL)
+    _migrate_users_drop_used_quota(conn)
+    _seed_settings(conn)
 
     # 播种默认权限组
     cur = conn.execute("SELECT COUNT(*) FROM groups")

@@ -156,3 +156,17 @@
   opacity: 0.6;
   cursor: default;
 }
+
+#nekoseek-panel .nsp-window {
+  margin-left: 6px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+#nekoseek-panel .nsp-bar-fill.nsp-pool {
+  background: #6366f1;
+}
+
+#nekoseek-panel .nsp-bar-fill.nsp-pool.nsp-danger {
+  background: #ef4444;
+}

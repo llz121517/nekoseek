@@ -27,6 +27,7 @@ from app.config import (
     DSH_AUTOSTART,
 )
 from app.core.db import db_op
+from app.core import quota
 from app.core.auth import (
     RedirectToLogin,
     admin_required,
@@ -135,20 +136,49 @@ async def ws_tunnel(websocket: WebSocket, path: str):
     if user is None or not user.get("status"):
         await websocket.close(code=4401)
         return
-    await proxy_ws(websocket, "/" + path)
+    if not quota.check_user_quota(user) or not quota.check_global_quota():
+        await websocket.close(code=4429)
+        return
+    await proxy_ws(websocket, "/" + path, user)
 
 
-@app.get("/", dependencies=[Depends(get_current_user_or_redirect)])
+def _quota_guard_user(request: Request) -> dict:
+    """
+    webui 代理专用依赖：登录校验 + 配额预检。超限直接 429 JSON。
+    通过后把 user 挂在 request.state，供 handler 透传给 proxy。
+    """
+    user = get_current_user_or_redirect(request)
+    if not quota.check_user_quota(user) or not quota.check_global_quota():
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=429,
+            detail={"code": 0, "msg": "配额已用完，请等待窗口重置或联系管理员"},
+        )
+    request.state.quota_user = user
+    return user
+
+
+@app.exception_handler(429)
+async def quota_exceeded_handler(request: Request, exc):
+    """把 429 detail 规范为项目统一的 {code,msg} JSON。"""
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, dict) and "code" in detail:
+        return JSONResponse(status_code=429, content=detail)
+    return JSONResponse(status_code=429, content={"code": 0, "msg": str(detail or "quota exceeded")})
+
+
+@app.get("/")
 async def webui_root(request: Request):
     """根路径：透传给 DSH。"""
-    return await proxy_webui(request, "")
+    user = _quota_guard_user(request)
+    return await proxy_webui(request, "", user)
 
 
 @app.api_route(
     "/{path:path}",
     methods=["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    dependencies=[Depends(get_current_user_or_redirect)],
 )
 async def webui_proxy(request: Request, path: str):
     """HTTP catch-all：所有剩余请求透传给 DSH webui。"""
-    return await proxy_webui(request, path)
+    user = _quota_guard_user(request)
+    return await proxy_webui(request, path, user)

@@ -4,7 +4,12 @@ HTTP 透明反代：DSH webui 全部请求透传。
 
 对顶层导航的 HTML 响应（sec-fetch-dest=document）缓冲并注入用户信息面板；
 其余请求（SSE、JS、CSS、XHR 片段等）一律流式透传。
+
+配额计量（输入）：仅拦截 DSH 的 RPC prompt 端点（POST /api/session.prompt
+与 /api/subagent.prompt），对 content[].text 粗略分词估算；其余请求不计。
+输出计量走 WS 下行帧里的真实 usage（见 ws_proxy.py），HTTP 侧不重复记。
 """
+import json
 import logging
 import time
 
@@ -13,6 +18,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.config import DSH_UPSTREAM, DSH_ORIGIN
+from app.core import quota, tokenize
 from app.services.inject import inject_panel_tags
 
 logger = logging.getLogger("nekoseek.proxy")
@@ -30,6 +36,10 @@ _HOP_BY_HOP = {
 _STREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=None, pool=None)
 
 _client = httpx.AsyncClient(base_url=DSH_UPSTREAM, timeout=_STREAM_TIMEOUT)
+
+# DSH RPC prompt 端点路径后缀（见 dsh-client-connection/lib/types/api-path.d.ts
+# 与 dsh-host-apiproxy/lib/types/api/rpc-map.d.ts 的 session.prompt / subagent.prompt）。
+_PROMPT_PATH_SUFFIXES = ("/api/session.prompt", "/api/subagent.prompt")
 
 
 def _forward_headers(request: Request) -> dict:
@@ -96,17 +106,46 @@ async def probe_upstream() -> tuple[bool, float | None]:
         return False, None
 
 
-async def proxy_webui(request: Request, path: str) -> Response:
+def _account_prompt_input(user: dict, body: bytes) -> None:
+    """
+    对 DSH RPC prompt 请求体做输入 token 粗略估算并记账。
+    解析失败静默跳过，不影响代理链路。
+    """
+    try:
+        payload = json.loads(body)
+    except (ValueError, TypeError):
+        return
+    if not isinstance(payload, dict):
+        return
+    # 兼容两种封装：裸 {content:[...]} 与 RPC 信封 {payload:{content:[...]}}
+    content = payload.get("content")
+    if not isinstance(content, list):
+        inner = payload.get("payload")
+        if isinstance(inner, dict):
+            content = inner.get("content")
+    if not isinstance(content, list):
+        return
+    tokens = tokenize.estimate_prompt_parts(content)
+    if tokens > 0:
+        quota.record_usage(user["id"], input_tokens=tokens)
+
+
+async def proxy_webui(request: Request, path: str, user: dict | None = None) -> Response:
     """
     将请求转发到 DSH webui 上游。
     顶层导航 HTML 缓冲后注入用户信息面板；其余响应流式透传。
     上游不可达时返回 502 Bad Gateway。
+
+    user 已登录时，对 RPC prompt 端点估算输入 token 并记账（输出端走 WS 真实 usage）。
     """
     url = "/" + path if path else "/"
     if request.url.query:
         url += "?" + request.url.query
 
     body = await request.body()
+    if user and request.method == "POST" and url.split("?", 1)[0].endswith(_PROMPT_PATH_SUFFIXES):
+        _account_prompt_input(user, body)
+
     headers = _forward_headers(request)
     # DSH 会校验 Origin 与自身同源，否则返回 403。将浏览器带来的
     # 网关地址 Origin 重写为上游地址，Referer 一并重写保持一致。

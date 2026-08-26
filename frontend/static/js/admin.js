@@ -18,6 +18,7 @@ $$('#adminTabs .nav-link').forEach((btn) => {
       case 'users': loadUsers(); break;
       case 'groups': loadGroups(); break;
       case 'invites': loadInvites(); break;
+      case 'quota': loadQuota(); break;
     }
   });
 });
@@ -105,7 +106,6 @@ async function loadUsers() {
         <td><span class="badge ${g?.is_admin ? 'text-bg-primary' : 'text-bg-secondary'}">${esc(g?.name || u.group_id)}</span></td>
         <td><span class="badge ${u.status ? 'text-bg-success' : 'text-bg-danger'}">${u.status ? '启用' : '停用'}</span></td>
         <td>${u.quota_override ?? '继承组'}</td>
-        <td>${u.used_quota ?? 0}</td>
         <td class="table-actions">
           <button type="button" class="btn btn-sm btn-outline-primary me-1" data-action="edit-user">编辑</button>
           <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete-user">删除</button>
@@ -305,6 +305,49 @@ document.addEventListener('click', (e) => {
   } else if (action === 'delete-invite' && row) {
     deleteInvite(row.dataset.inviteCode);
   }
+});
+
+// ---- 配额 ----
+async function loadQuota() {
+  const [settings, usage] = await Promise.all([
+    api('/api/v1/admin/quota/settings'),
+    api('/api/v1/admin/quota/usage'),
+  ]);
+  if (settings.data) {
+    $('#quotaWindow').value = settings.data.window || 'day';
+    $('#globalLimit').value = settings.data.global_limit ?? 0;
+  }
+  if (usage.data) {
+    const pool = usage.data.pool || {};
+    const limit = settings.data?.global_limit ?? 0;
+    const remaining = limit > 0 ? Math.max(0, limit - (pool.total_tokens || 0)) : null;
+    $('#poolUsage').innerHTML = `
+      <div>窗口：<b>${esc(usage.data.window)}</b>（起点 ${new Date((usage.data.window_start || 0) * 1000).toLocaleString()}）</div>
+      <div>已用：<b>${pool.total_tokens || 0}</b>（输入 ${pool.input_tokens || 0} / 输出 ${pool.output_tokens || 0}）</div>
+      <div>上限：<b>${limit > 0 ? limit : '不限'}</b>${remaining !== null ? `，剩余 <b>${remaining}</b>` : ''}</div>
+    `;
+    const tbody = $('#quotaUsageTable tbody');
+    const rows = usage.data.users || [];
+    tbody.innerHTML = rows.length
+      ? rows.map((u) => `
+          <tr>
+            <td>${esc(u.username || '#' + u.user_id)}</td>
+            <td>${u.input_tokens || 0}</td>
+            <td>${u.output_tokens || 0}</td>
+            <td><b>${u.total_tokens || 0}</b></td>
+          </tr>`).join('')
+      : '<tr><td colspan="4" class="text-body-secondary">当前窗口尚无用量</td></tr>';
+  }
+}
+
+$('#saveQuota').addEventListener('click', async () => {
+  const body = {
+    window: $('#quotaWindow').value,
+    global_limit: parseInt($('#globalLimit').value) || 0,
+  };
+  const r = await api('/api/v1/admin/quota/settings', { method: 'PUT', body: JSON.stringify(body) });
+  showMsg('quotaMsg', r);
+  if (r.code === 1) loadQuota();
 });
 
 // ---- 登出 ----

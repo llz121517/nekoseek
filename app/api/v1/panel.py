@@ -4,8 +4,8 @@
 """
 from fastapi import APIRouter, Depends
 
+from app.core import quota
 from app.core.auth import get_current_user
-from app.core.db import db_op
 
 router = APIRouter(prefix="/api/v1/panel", tags=["panel", "api_v1"])
 
@@ -13,23 +13,22 @@ router = APIRouter(prefix="/api/v1/panel", tags=["panel", "api_v1"])
 @router.get("/me")
 async def panel_me(user: dict = Depends(get_current_user)):
     """
-    返回当前登录用户的面板数据。quota_limit 为 0 表示不限。
-
-    pool 为全局池额度预留字段：当前无任何全局记账逻辑，恒为不限
-    （limit=0 / used=0 / remaining=None）。未来接入全局记账后，
-    前端在"全局已用完但个人仍有剩余"时会提示用户联系管理员。
+    返回当前登录用户的面板数据：窗口类型 + 个人用量 + 全局池用量。
+    limit 为 0 表示不限；remaining 仅在有限额时给出。
     """
-    quota_limit = db_op.get_effective_user_quota(user)
-    used = user.get("used_quota", 0)
+    summary = quota.quota_summary(user)
     return {
         "code": 1,
         "msg": "ok",
         "data": {
             "username": user["username"],
-            "quota_limit": quota_limit,
-            "used_quota": used,
-            "remaining": (quota_limit - used) if quota_limit > 0 else None,
-            # 全局池预留：尚无记账，恒不限
-            "pool": {"limit": 0, "used": 0, "remaining": None},
+            "window": summary["window"],
+            "window_start": summary["window_start"],
+            # 兼容旧前端字段
+            "quota_limit": summary["user"]["limit"],
+            "used_quota": summary["user"]["used"],
+            "remaining": summary["user"]["remaining"],
+            "user": summary["user"],
+            "pool": summary["pool"],
         },
     }

@@ -155,15 +155,6 @@ def delete_user(user_id: int) -> bool:
     return cur.rowcount > 0
 
 
-def set_user_quota(user_id: int, quota_override: int | None) -> bool:
-    conn = get_data_conn()
-    cur = conn.execute(
-        "UPDATE users SET quota_override = ? WHERE id = ?", (quota_override, user_id)
-    )
-    conn.commit()
-    return cur.rowcount > 0
-
-
 def get_effective_user_quota(user: dict) -> int:
     """
     用户有效配额：优先 quota_override，其次所属组 quota_limit。
@@ -172,6 +163,77 @@ def get_effective_user_quota(user: dict) -> int:
         return user["quota_override"]
     group = get_group_by_id(user["group_id"])
     return (group or {}).get("quota_limit", 0)
+
+
+# ---------- 设置 ----------
+
+
+def get_setting(key: str, default: str | None = None) -> str | None:
+    row = get_data_conn().execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    conn = get_data_conn()
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    conn.commit()
+
+
+# ---------- 用量记账（窗口化） ----------
+
+
+def get_usage(user_id: int, window_start: int) -> dict:
+    """
+    读取某用户（user_id=0 表示全局池）在某窗口的用量，无记录返回全 0。
+    """
+    row = get_data_conn().execute(
+        "SELECT * FROM usage_records WHERE user_id = ? AND window_start = ?",
+        (user_id, window_start),
+    ).fetchone()
+    if row:
+        return dict(row)
+    return {
+        "user_id": user_id,
+        "window_start": window_start,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+    }
+
+
+def add_usage(user_id: int, window_start: int, input_tokens: int, output_tokens: int) -> dict:
+    """
+    累加某窗口用量（UPSERT），返回最新记录。
+    """
+    conn = get_data_conn()
+    conn.execute(
+        """
+        INSERT INTO usage_records (user_id, window_start, input_tokens, output_tokens, total_tokens)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, window_start) DO UPDATE SET
+            input_tokens  = input_tokens  + excluded.input_tokens,
+            output_tokens = output_tokens + excluded.output_tokens,
+            total_tokens  = total_tokens  + excluded.total_tokens
+        """,
+        (user_id, window_start, input_tokens, output_tokens, input_tokens + output_tokens),
+    )
+    conn.commit()
+    return get_usage(user_id, window_start)
+
+
+def list_window_usage(window_start: int) -> list[dict]:
+    """
+    列出某窗口所有用户用量（不含 user_id=0 的全局行）。
+    """
+    rows = get_data_conn().execute(
+        "SELECT * FROM usage_records WHERE window_start = ? AND user_id != 0 ORDER BY total_tokens DESC",
+        (window_start,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---------- 邀请码 ----------

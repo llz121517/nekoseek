@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from app.core.auth import admin_required, get_current_user
+from app.core import quota
 from app.core.db import db_op
 from app.services import dsh_process
 
@@ -223,3 +224,69 @@ async def dsh_start():
 @router.post("/dsh/stop")
 async def dsh_stop():
     return {"code": 1, "msg": "ok", "data": dsh_process.stop()}
+
+
+# ---------- 配额 ----------
+
+
+class QuotaSettingsIn(BaseModel):
+    window: Optional[str] = None          # 5h | day | week | month
+    global_limit: Optional[int] = None    # 0 = 不限
+
+
+@router.get("/quota/settings")
+async def get_quota_settings():
+    return {
+        "code": 1,
+        "msg": "ok",
+        "data": {
+            "window": quota.get_window_kind(),
+            "global_limit": quota.get_global_limit(),
+            "window_kinds": list(quota.WINDOW_KINDS),
+        },
+    }
+
+
+@router.put("/quota/settings")
+async def update_quota_settings(payload: QuotaSettingsIn):
+    data = payload.model_dump(exclude_unset=True)
+    if "window" in data and data["window"] is not None:
+        try:
+            quota.set_window_kind(data["window"])
+        except ValueError as e:
+            return {"code": 0, "msg": str(e)}
+    if "global_limit" in data and data["global_limit"] is not None:
+        quota.set_global_limit(data["global_limit"])
+    return {
+        "code": 1,
+        "msg": "更新成功",
+        "data": {
+            "window": quota.get_window_kind(),
+            "global_limit": quota.get_global_limit(),
+        },
+    }
+
+
+@router.get("/quota/usage")
+async def get_quota_usage():
+    """
+    当前窗口用量：全局池 + 各用户。
+    """
+    kind = quota.get_window_kind()
+    ws = quota.current_window_start(kind)
+    pool = db_op.get_usage(0, ws)
+    users = db_op.list_window_usage(ws)
+    # 附带用户名，便于后台展示
+    name_by_id = {u["id"]: u["username"] for u in db_op.list_users()}
+    for u in users:
+        u["username"] = name_by_id.get(u["user_id"], f"#{u['user_id']}")
+    return {
+        "code": 1,
+        "msg": "ok",
+        "data": {
+            "window": kind,
+            "window_start": ws,
+            "pool": pool,
+            "users": users,
+        },
+    }
