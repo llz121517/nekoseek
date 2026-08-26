@@ -243,6 +243,16 @@ def list_window_usage(window_start: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def delete_window_usage(window_start: int) -> int:
+    """
+    删除某窗口下所有用量行（含全局池 user_id=0），返回删除行数。
+    """
+    conn = get_data_conn()
+    cur = conn.execute("DELETE FROM usage_records WHERE window_start = ?", (window_start,))
+    conn.commit()
+    return cur.rowcount
+
+
 # ---------- 邀请码 ----------
 
 

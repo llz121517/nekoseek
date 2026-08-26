@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import admin_required, get_current_user
 from app.core import quota
 from app.core.db import db_op
-from app.services import dsh_process
+from app.services import dsh_process, ds_balance
 
 router = APIRouter(
     prefix="/api/v1/admin",
@@ -301,3 +301,21 @@ async def get_quota_usage():
             "users": users,
         },
     }
+
+
+@router.post("/quota/reset")
+async def reset_quota_usage():
+    """
+    清空当前窗口下的所有用量（用户 + 全局池）。
+    """
+    n = quota.reset_current_window_usage()
+    return {"code": 1, "msg": f"已重置 {n} 行用量", "data": {"deleted": n}}
+
+
+@router.get("/deepseek/balance")
+async def deepseek_balance():
+    """
+    查询 DeepSeek 账户余额，供管理后台概览展示。
+    """
+    data = await ds_balance.fetch_balance()
+    return {"code": 1 if data["ok"] else 0, "msg": "ok" if data["ok"] else (data["error"] or "查询失败"), "data": data}

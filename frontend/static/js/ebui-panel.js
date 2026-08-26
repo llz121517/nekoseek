@@ -208,7 +208,7 @@
     usernameEl.textContent = data.username || '';
     windowEl.textContent = data.window ? ('· ' + windowName(data.window)) : '';
 
-    var user = data.user || { used: data.used_quota || 0, limit: data.quota_limit || 0 };
+    var user = data.user || { used: 0, limit: 0 };
     var limit = user.limit || 0;
     var used = user.used || 0;
 

@@ -30,13 +30,26 @@ async function loadOverview() {
     $('#currentUser').textContent = `当前用户：${esc(chk.data.username)}`;
   }
 
-  const [users, dsh] = await Promise.all([
+  const [users, dsh, balance] = await Promise.all([
     api('/api/v1/admin/users'),
     api('/api/v1/admin/dsh/status'),
+    api('/api/v1/admin/deepseek/balance'),
   ]);
 
   const list = users.data || [];
   const stats = $('#overviewStats');
+
+  let balanceHtml = '<p class="card-text fs-3 fw-semibold mb-0 text-body-secondary">查询失败</p>';
+  if (balance.data && balance.data.ok && (balance.data.balances || []).length) {
+    const items = balance.data.balances.map((b) =>
+      `<p class="card-text mb-0"><span class="fs-3 fw-semibold">${esc(b.total)}</span> <span class="text-body-secondary small">${esc(b.currency)}</span></p>`
+    ).join('');
+    balanceHtml = items + (balance.data.is_available === false
+      ? '<p class="card-text text-danger small mb-0">账户不可用</p>' : '');
+  } else if (balance.data && balance.data.error) {
+    balanceHtml = `<p class="card-text fs-6 mb-0 text-body-secondary">${esc(balance.data.error)}</p>`;
+  }
+
   stats.innerHTML = `
     <div class="col">
       <div class="card h-100">
@@ -60,6 +73,14 @@ async function loadOverview() {
           <h6 class="card-subtitle mb-2 text-body-secondary">DSH 状态</h6>
           <p class="card-text fs-3 fw-semibold mb-0">${dsh.data?.running ? '运行中' : '已停止'}</p>
           <p class="card-text text-body-secondary small mb-0">${dsh.data?.pid ? `PID ${dsh.data.pid}` : ''}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-2 text-body-secondary">DeepSeek 余额</h6>
+          ${balanceHtml}
         </div>
       </div>
     </div>
@@ -352,6 +373,13 @@ $('#saveQuota').addEventListener('click', async () => {
     global_limit: parseInt($('#globalLimit').value) || 0,
   };
   const r = await api('/api/v1/admin/quota/settings', { method: 'PUT', body: JSON.stringify(body) });
+  showMsg('quotaMsg', r);
+  if (r.code === 1) loadQuota();
+});
+
+$('#resetQuota').addEventListener('click', async () => {
+  if (!confirm('确认清空当前窗口下的所有用户与全局用量？此操作不可撤销。')) return;
+  const r = await api('/api/v1/admin/quota/reset', { method: 'POST' });
   showMsg('quotaMsg', r);
   if (r.code === 1) loadQuota();
 });

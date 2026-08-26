@@ -53,7 +53,7 @@
   <main class="container admin-main">
     <!-- 概览 -->
     <section class="page active" id="page-overview">
-      <div class="row row-cols-1 row-cols-md-3 g-3 mb-4" id="overviewStats"></div>
+      <div class="row row-cols-1 row-cols-md-4 g-3 mb-4" id="overviewStats"></div>
       <div class="card">
         <div class="card-body">
           <h5 class="card-title">DSH 进程</h5>
@@ -236,8 +236,11 @@
 
       <div class="card mb-4">
         <div class="card-body">
-          <h5 class="card-title">当前窗口全局用量</h5>
-          <div id="poolUsage" class="text-body-secondary">加载中…</div>
+          <div class="d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">当前窗口全局用量</h5>
+            <button type="button" class="btn btn-sm btn-outline-danger" id="resetQuota">重置当前窗口用量</button>
+          </div>
+          <div id="poolUsage" class="text-body-secondary mt-2">加载中…</div>
         </div>
       </div>
 
