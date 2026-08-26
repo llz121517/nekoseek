@@ -3,13 +3,14 @@
 管理后台接口：用户 / 权限组 / 邀请码 / DSH 进程（均需 admin）
 """
 from typing import Optional
+import time
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from app.core.auth import admin_required, get_current_user
 from app.core import quota
-from app.core.db import db_op
+from app.core.db import db_op, stats_op
 from app.services import dsh_process, ds_balance
 
 router = APIRouter(
@@ -319,3 +320,65 @@ async def deepseek_balance():
     """
     data = await ds_balance.fetch_balance()
     return {"code": 1 if data["ok"] else 0, "msg": "ok" if data["ok"] else (data["error"] or "查询失败"), "data": data}
+
+
+# ---------- 详细用量统计（独立 stats.db，小时×用户明细） ----------
+
+
+def _clamp_days(days: int | None) -> int:
+    try:
+        d = int(days) if days is not None else 1
+    except (TypeError, ValueError):
+        d = 1
+    return max(1, min(30, d))
+
+
+@router.get("/stats/overview")
+async def get_stats_overview():
+    """
+    概览统计：今日用量 + 累计用量（含活跃用户数）。
+    """
+    now = int(time.time())
+    today = stats_op.sum_range(stats_op.today_start_ts(), now + 1)
+    all_time = stats_op.sum_all_time()
+    return {"code": 1, "msg": "ok", "data": {"today": today, "all_time": all_time}}
+
+
+@router.get("/stats/hourly")
+async def get_stats_hourly(days: Optional[int] = None):
+    """
+    逐小时用量序列（全用户聚合），服务端零填充到整点，供折线/面积图直接使用。
+    """
+    d = _clamp_days(days)
+    now_bucket = stats_op.hour_bucket()
+    start_bucket = now_bucket - (d * 24 - 1) * 3600
+    rows = stats_op.hourly_series(start_bucket, now_bucket + 3600)
+    by_hour = {r["hour_start"]: r for r in rows}
+    points = []
+    for h in range(start_bucket, now_bucket + 1, 3600):
+        r = by_hour.get(h)
+        points.append({
+            "ts": h,
+            "input_tokens": r["input_tokens"] if r else 0,
+            "output_tokens": r["output_tokens"] if r else 0,
+            "total_tokens": r["total_tokens"] if r else 0,
+        })
+    return {
+        "code": 1,
+        "msg": "ok",
+        "data": {"days": d, "start": start_bucket, "end": now_bucket, "points": points},
+    }
+
+
+@router.get("/stats/by_user")
+async def get_stats_by_user(days: Optional[int] = None):
+    """
+    时间范围内按用户聚合的用量排行（含用户名）。
+    """
+    d = _clamp_days(days)
+    now = int(time.time())
+    users = stats_op.sum_by_user(now - d * 86400, now + 1)
+    name_by_id = {u["id"]: u["username"] for u in db_op.list_users()}
+    for u in users:
+        u["username"] = name_by_id.get(u["user_id"], f"#{u['user_id']}")
+    return {"code": 1, "msg": "ok", "data": {"days": d, "users": users}}

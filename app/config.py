@@ -63,6 +63,7 @@ SESSION_SECURE = os.getenv("SESSION_SECURE", "0") == "1"  # 仅 HTTPS 部署时�
 DB_DIR = ROOT / "data" / "db"
 DATA_DB_PATH = DB_DIR / "data.db"
 CACHE_DB_PATH = DB_DIR / "cache.db"
+STATS_DB_PATH = DB_DIR / "stats.db"
 
 # ====== 配额 ======
 # 计量窗口：5h / day / week / month；仅作 DB settings 的初始种子，运行时以后台设置为准。

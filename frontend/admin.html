@@ -41,6 +41,9 @@
         <li class="nav-item">
           <button class="nav-link" data-page="quota">配额</button>
         </li>
+        <li class="nav-item">
+          <button class="nav-link" data-page="stats">用量统计</button>
+        </li>
       </ul>
       <div class="d-flex align-items-center gap-3 ms-auto">
         <span class="navbar-text text-body-secondary" id="currentUser"></span>
@@ -53,7 +56,7 @@
   <main class="container admin-main">
     <!-- 概览 -->
     <section class="page active" id="page-overview">
-      <div class="row row-cols-1 row-cols-md-4 g-3 mb-4" id="overviewStats"></div>
+      <div class="row row-cols-1 row-cols-md-3 g-3 mb-4" id="overviewStats"></div>
       <div class="card">
         <div class="card-body">
           <h5 class="card-title">DSH 进程</h5>
@@ -263,9 +266,52 @@
         </div>
       </div>
     </section>
+
+    <!-- 用量统计 -->
+    <section class="page" id="page-stats">
+      <div class="row row-cols-2 row-cols-md-4 g-3 mb-4" id="statsSummary"></div>
+
+      <div class="d-flex gap-2 mb-3" id="statsRange">
+        <button type="button" class="btn btn-sm btn-primary" data-days="1">近 24 小时</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-days="7">近 7 天</button>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-body">
+          <h5 class="card-title">逐时用量</h5>
+          <div style="position:relative;height:320px">
+            <canvas id="statsHourlyChart"></canvas>
+          </div>
+          <div class="text-body-secondary small mt-2 d-none" id="statsHourlyEmpty">所选范围暂无用量数据</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <h5 class="card-title">用户用量排行</h5>
+          <div style="position:relative;height:280px">
+            <canvas id="statsUserChart"></canvas>
+          </div>
+          <div class="table-responsive mt-3">
+            <table class="table table-hover align-middle" id="statsUserTable">
+              <thead>
+                <tr>
+                  <th>用户</th>
+                  <th>输入 tokens</th>
+                  <th>输出 tokens</th>
+                  <th>合计</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script src="/static/vendor/bootstrap-5.3.3/bootstrap.bundle.min.js"></script>
+  <script src="/static/vendor/chart/chart.umd.js"></script>
   <script type="module" src="/static/js/admin.js"></script>
 </body>
 </html>

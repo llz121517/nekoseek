@@ -2,9 +2,14 @@ import { api, showToast, esc, initTheme, toggleTheme } from './common.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
+const fmt = (n) => Number(n || 0).toLocaleString();
 
 initTheme();
-$('#themeToggle').addEventListener('click', toggleTheme);
+$('#themeToggle').addEventListener('click', () => {
+  toggleTheme();
+  // Chart.js 颜色在创建时固化，主题切换后需重建图表以更换刻度/网格配色
+  if (hourlyChart || userChart) loadStats();
+});
 
 // ---- Tab 切换 ----
 $$('#adminTabs .nav-link').forEach((btn) => {
@@ -19,6 +24,7 @@ $$('#adminTabs .nav-link').forEach((btn) => {
       case 'groups': loadGroups(); break;
       case 'invites': loadInvites(); break;
       case 'quota': loadQuota(); break;
+      case 'stats': loadStats(); break;
     }
   });
 });
@@ -30,14 +36,21 @@ async function loadOverview() {
     $('#currentUser').textContent = `当前用户：${esc(chk.data.username)}`;
   }
 
-  const [users, dsh, balance] = await Promise.all([
+  const [users, dsh, balance, statsRes] = await Promise.all([
     api('/api/v1/admin/users'),
     api('/api/v1/admin/dsh/status'),
     api('/api/v1/admin/deepseek/balance'),
+    api('/api/v1/admin/stats/overview'),
   ]);
 
   const list = users.data || [];
   const stats = $('#overviewStats');
+
+  const today = statsRes.data?.today || {};
+  const allTime = statsRes.data?.all_time || {};
+  const sinceHtml = allTime.since
+    ? `自 ${new Date(allTime.since * 1000).toLocaleDateString()}`
+    : '暂无记录';
 
   let balanceHtml = '<p class="card-text fs-3 fw-semibold mb-0 text-body-secondary">查询失败</p>';
   if (balance.data && balance.data.ok && (balance.data.balances || []).length) {
@@ -81,6 +94,24 @@ async function loadOverview() {
         <div class="card-body">
           <h6 class="card-subtitle mb-2 text-body-secondary">DeepSeek 余额</h6>
           ${balanceHtml}
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-2 text-body-secondary">今日用量</h6>
+          <p class="card-text fs-3 fw-semibold mb-0">${fmt(today.total_tokens || 0)}</p>
+          <p class="card-text text-body-secondary small mb-0">输入 ${fmt(today.input_tokens || 0)} / 输出 ${fmt(today.output_tokens || 0)} · 活跃 ${today.active_users || 0} 人</p>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-2 text-body-secondary">累计用量</h6>
+          <p class="card-text fs-3 fw-semibold mb-0">${fmt(allTime.total_tokens || 0)}</p>
+          <p class="card-text text-body-secondary small mb-0">输入 ${fmt(allTime.input_tokens || 0)} / 输出 ${fmt(allTime.output_tokens || 0)} · ${sinceHtml}</p>
         </div>
       </div>
     </div>
@@ -332,6 +363,181 @@ document.addEventListener('click', (e) => {
   } else if (action === 'delete-invite' && row) {
     deleteInvite(row.dataset.inviteCode);
   }
+});
+
+// ---- 用量统计 ----
+let statsDays = 1;
+let hourlyChart = null;
+let userChart = null;
+
+function chartTheme() {
+  // 跟随 data-bs-theme 返回 Chart.js 用的刻度/网格/系列配色
+  const dark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+  return dark
+    ? { tick: '#c3c2b7', grid: '#2c2c2a', blue: '#3987e5', orange: '#d95926' }
+    : { tick: '#52514e', grid: '#e1e0d9', blue: '#2a78d6', orange: '#eb6834' };
+}
+
+async function loadStats() {
+  const [overview, hourly, byUser] = await Promise.all([
+    api('/api/v1/admin/stats/overview'),
+    api(`/api/v1/admin/stats/hourly?days=${statsDays}`),
+    api(`/api/v1/admin/stats/by_user?days=${statsDays}`),
+  ]);
+  renderStatsSummary(overview.data);
+  renderHourlyChart(hourly.data);
+  renderUserChart(byUser.data);
+}
+
+function renderStatsSummary(data) {
+  const today = data?.today || {};
+  const allTime = data?.all_time || {};
+  const active = today.active_users || 0;
+  const avg = active > 0 ? Math.round((today.total_tokens || 0) / active) : 0;
+  const since = allTime.since ? new Date(allTime.since * 1000).toLocaleDateString() : '—';
+  const card = (title, main, sub) => `
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-2 text-body-secondary">${title}</h6>
+          <p class="card-text fs-3 fw-semibold mb-0">${main}</p>
+          <p class="card-text text-body-secondary small mb-0">${sub}</p>
+        </div>
+      </div>
+    </div>`;
+  $('#statsSummary').innerHTML =
+    card('今日用量', fmt(today.total_tokens || 0), `输入 ${fmt(today.input_tokens || 0)} / 输出 ${fmt(today.output_tokens || 0)}`) +
+    card('累计用量', fmt(allTime.total_tokens || 0), `自 ${since}`) +
+    card('今日活跃用户', fmt(active), '今日有用量记录的用户数') +
+    card('今日人均用量', fmt(avg), '今日总量 ÷ 活跃用户数');
+}
+
+function renderHourlyChart(data) {
+  const points = data?.points || [];
+  const hasData = points.some((p) => (p.total_tokens || 0) > 0);
+  $('#statsHourlyEmpty').classList.toggle('d-none', hasData);
+  if (hourlyChart) { hourlyChart.destroy(); hourlyChart = null; }
+  if (!hasData || typeof Chart === 'undefined') return;
+
+  const t = chartTheme();
+  const labels = points.map((p) => {
+    const d = new Date(p.ts * 1000);
+    const hh = String(d.getHours()).padStart(2, '0');
+    if (statsDays === 1) return `${hh}:00`;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${mm}-${dd} ${hh}:00`;
+  });
+  hourlyChart = new Chart($('#statsHourlyChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '输入 tokens',
+          data: points.map((p) => p.input_tokens || 0),
+          borderColor: t.blue,
+          backgroundColor: t.blue + '55',
+          fill: true,
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHitRadius: 10,
+          tension: 0.2,
+        },
+        {
+          label: '输出 tokens',
+          data: points.map((p) => p.output_tokens || 0),
+          borderColor: t.orange,
+          backgroundColor: t.orange + '55',
+          fill: true,
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHitRadius: 10,
+          tension: 0.2,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, labels: { color: t.tick } },
+        tooltip: {
+          callbacks: { label: (c) => ` ${c.dataset.label}：${fmt(c.parsed.y)}` },
+        },
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: t.tick, maxTicksLimit: 12 }, grid: { color: t.grid } },
+        y: { stacked: true, beginAtZero: true, ticks: { color: t.tick }, grid: { color: t.grid } },
+      },
+    },
+  });
+}
+
+function renderUserChart(data) {
+  const users = data?.users || [];
+  const tbody = $('#statsUserTable tbody');
+  tbody.innerHTML = users.length
+    ? users.map((u) => `
+        <tr>
+          <td>${esc(u.username || '#' + u.user_id)}</td>
+          <td>${fmt(u.input_tokens || 0)}</td>
+          <td>${fmt(u.output_tokens || 0)}</td>
+          <td><b>${fmt(u.total_tokens || 0)}</b></td>
+        </tr>`).join('')
+    : '<tr><td colspan="4" class="text-body-secondary">所选范围暂无用量</td></tr>';
+
+  if (userChart) { userChart.destroy(); userChart = null; }
+  if (!users.length || typeof Chart === 'undefined') return;
+
+  // 用户是开放集合：Top 10 单列展示，其余折叠为“其他”一根条
+  const top = users.slice(0, 10);
+  const rest = users.slice(10);
+  const labels = top.map((u) => u.username || '#' + u.user_id);
+  const values = top.map((u) => u.total_tokens || 0);
+  if (rest.length) {
+    labels.push('其他');
+    values.push(rest.reduce((s, u) => s + (u.total_tokens || 0), 0));
+  }
+
+  const t = chartTheme();
+  userChart = new Chart($('#statsUserChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: '合计 tokens',
+        data: values,
+        backgroundColor: t.blue,
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => ` 合计：${fmt(c.parsed.x)}` } },
+      },
+      scales: {
+        x: { beginAtZero: true, ticks: { color: t.tick }, grid: { color: t.grid } },
+        y: { ticks: { color: t.tick }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+$$('#statsRange [data-days]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    statsDays = parseInt(btn.dataset.days, 10) || 1;
+    $$('#statsRange [data-days]').forEach((b) => {
+      b.classList.toggle('btn-primary', b === btn);
+      b.classList.toggle('btn-outline-primary', b !== btn);
+    });
+    loadStats();
+  });
 });
 
 // ---- 配额 ----

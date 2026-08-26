@@ -9,6 +9,7 @@ from datetime import datetime
 
 from app.config import QUOTA_CJK_PER_CHAR, QUOTA_LATIN_PER_WORD  # noqa: F401  (re-export for debug)
 from app.core.db import db_op
+from app.core.db import stats_op
 
 logger = logging.getLogger("nekoseek.quota")
 
@@ -143,6 +144,11 @@ def record_usage(user_id: int, input_tokens: int = 0, output_tokens: int = 0) ->
         db_op.add_usage(0, ws, input_tokens, output_tokens)
     except Exception as e:  # noqa: BLE001
         logger.warning("配额记账失败 user_id=%s: %r", user_id, e)
+    # 详细用量统计：独立 stats.db，与配额记账互不影响（统计失败绝不拖累代理链路）
+    try:
+        stats_op.add_hourly(user_id, stats_op.hour_bucket(), input_tokens, output_tokens)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("用量统计记账失败 user_id=%s: %r", user_id, e)
 
 
 def get_user_usage(user_id: int, window_start: int | None = None) -> dict:

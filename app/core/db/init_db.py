@@ -8,7 +8,7 @@ from app.config import (
     ADMIN_USERNAME, ADMIN_PASSWORD, DATA_DB_PATH, CACHE_DB_PATH, DB_DIR,
     QUOTA_WINDOW, GLOBAL_QUOTA_LIMIT,
 )
-from app.core.db.db import get_data_conn, get_cache_conn
+from app.core.db.db import get_data_conn, get_cache_conn, get_stats_conn
 from app.core.security import hash_password
 
 USER_SQL = """
@@ -87,6 +87,20 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire_ts);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 """
 
+STATS_SQL = """
+-- 详细用量统计：按 小时 × 用户 聚合的明细，独立于窗口化配额库，永不被配额重置清空
+CREATE TABLE IF NOT EXISTS usage_hourly (
+    user_id       INTEGER NOT NULL,
+    hour_start    INTEGER NOT NULL,          -- 小时桶起点，epoch 秒（%3600 对齐）
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens  INTEGER NOT NULL DEFAULT 0,
+    updated_at    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, hour_start)
+);
+CREATE INDEX IF NOT EXISTS idx_usage_hourly_time ON usage_hourly(hour_start);
+"""
+
 
 def _migrate_users_drop_used_quota(conn) -> None:
     """
@@ -153,6 +167,11 @@ def _init_cache_db() -> None:
     conn.executescript(CACHE_SQL)
 
 
+def _init_stats_db() -> None:
+    conn = get_stats_conn()
+    conn.executescript(STATS_SQL)
+
+
 def init_db() -> None:
     """
     初始化数据库：建文件夹 + 建表 + 播种默认组与管理员。
@@ -160,3 +179,4 @@ def init_db() -> None:
     DB_DIR.mkdir(parents=True, exist_ok=True)
     _init_data_db()
     _init_cache_db()
+    _init_stats_db()

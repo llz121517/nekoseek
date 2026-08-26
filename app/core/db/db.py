@@ -7,10 +7,11 @@
 import sqlite3
 import threading
 
-from app.config import DATA_DB_PATH, CACHE_DB_PATH
+from app.config import DATA_DB_PATH, CACHE_DB_PATH, STATS_DB_PATH
 
 _data_local = threading.local()
 _cache_local = threading.local()
+_stats_local = threading.local()
 
 
 def _open_conn(path: str, foreign_keys: bool = True) -> sqlite3.Connection:
@@ -36,3 +37,10 @@ def get_cache_conn() -> sqlite3.Connection:
     if not hasattr(_cache_local, "conn"):
         _cache_local.conn = _open_conn(str(CACHE_DB_PATH), foreign_keys=False)
     return _cache_local.conn
+
+
+def get_stats_conn() -> sqlite3.Connection:
+    """获取统计库（小时×用户用量）的线程本地连接。"""
+    if not hasattr(_stats_local, "conn"):
+        _stats_local.conn = _open_conn(str(STATS_DB_PATH), foreign_keys=False)
+    return _stats_local.conn
