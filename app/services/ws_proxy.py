@@ -59,7 +59,11 @@ def _extract_assistant_message(frame_text: str) -> tuple[int, int] | None:
     data = event.get("data") or {}
     usage = data.get("usage")
     if isinstance(usage, dict):
-        return int(usage.get("prompt_tokens", 0) or 0), int(usage.get("completion_tokens", 0) or 0)
+        # DSH TokenUsage 字段是 camelCase：inputTokens/outputTokens
+        # （见 dsh-llm/lib/types/types.d.ts 的 TokenUsage 接口）
+        in_tok = usage.get("inputTokens") or usage.get("prompt_tokens") or 0
+        out_tok = usage.get("outputTokens") or usage.get("completion_tokens") or 0
+        return int(in_tok), int(out_tok)
     # 无 usage：对 assistant 消息文本估算输出
     message = data.get("message") or {}
     content = message.get("content")
@@ -103,9 +107,13 @@ async def _pump(upstream, downstream: WebSocket, user: dict | None = None) -> No
                 text = str(message)
                 await downstream.send_text(text)
                 if user is not None:
+                    # 临时调试：记录前 200 字符看真实帧结构
+                    if '"assistant' in text or '"usage"' in text:
+                        logger.info("WS frame: %s", text[:400])
                     usage = _extract_assistant_message(text)
                     if usage is not None:
                         prompt_tok, completion_tok = usage
+                        logger.info("WS usage extracted: prompt=%s completion=%s", prompt_tok, completion_tok)
                         if prompt_tok > 0 or completion_tok > 0:
                             quota.record_usage(
                                 user["id"],
