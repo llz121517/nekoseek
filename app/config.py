@@ -1,88 +1,60 @@
 # app/config.py
+"""
+NekoSeek 配置：透明反代 DSH webui 的 MVP 配置。
+
+只在 .env / 环境变量中读取本项目需要的最小配置集，并在启动时做
+fail-fast 硬校验，避免带病运行。
+"""
 import os
+from pathlib import Path
+from urllib.parse import urlparse
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ====== .env 环境变量 ======
-# 首启播种管理员（一次性；建库后即迁移入 DB）
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+# 项目根目录（app/config.py 的上上级）
+ROOT = Path(__file__).parent.parent
 
-# DeepSeek 平台会话 token（可选，用于平台 usage/cost 与建 key 等逆向接口）
-DEEPSEEK_PLATFORM_TOKEN = os.getenv("DEEPSEEK_PLATFORM_TOKEN", "")
-
-
-# ====== 环境开关 ======
-ONE_CLICK_PRODUCE = False
-
-# 服务启动配置
-SERVER_HOST = "0.0.0.0"
-SERVER_PORT = 8000
-RELOAD = not ONE_CLICK_PRODUCE
-WORKERS = 1 if RELOAD else 4
-LOG_LEVEL = "debug" if not ONE_CLICK_PRODUCE else "info"
+# ====== 服务启动配置 ======
+SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+RELOAD = os.getenv("RELOAD", "0") == "1"
+# 固定单进程：DSH 子进程托管与模块级 httpx client 都不允许多 worker 各自初始化。
+WORKERS = 1
+LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
 RELOAD_DIR = ["app"]
 
-
-# FastAPI 基础配置
 TITLE = "NekoSeek"
 VERSION = "0.1.0"
-DESCRIPTION = "DSH 多租户反向代理 / 管理器"
-DEBUG = not ONE_CLICK_PRODUCE
-# None 为关闭文档页
-DOCS_URL = "/docs" if DEBUG else None
-REDOC_URL = "/redoc" if DEBUG else None
-OPENAPI_URL = "/openapi.json" if DEBUG else None
-
-
-# CORS 跨域配置
-if ONE_CLICK_PRODUCE:
-    ALLOW_ORIGINS = ["https://your-domain.com"]
-    if ALLOW_ORIGINS == ["https://your-domain.com"] or not ALLOW_ORIGINS:
-        raise RuntimeError("ALLOW_ORIGINS 未配置")
-else:
-    ALLOW_ORIGINS = ["http://localhost:8000"]
-ALLOW_CREDENTIALS = True
-ALLOW_METHODS = ["*"]
-ALLOW_HEADERS = ["*"]
-
-
-# Session / Cookie 配置
-SESSION_COOKIE_KEY = "session_id"
-SESSION_MAX_AGE = 7 * 24 * 60 * 60  # /秒
-SESSION_HTTPONLY = True
-SESSION_SAMESITE = "lax"
-SESSION_SECURE = ONE_CLICK_PRODUCE
-SESSION_CLEANUP_AGE = 600  # /秒 循环清理过期 Session 的间隔
-
+DESCRIPTION = "DSH 透明反向代理"
 
 # ====== DSH 上游配置 ======
-# DSH webui 监听地址（默认 127.0.0.1:3080）
+# DSH webui 监听地址（网关所有请求的转发目标）
 DSH_UPSTREAM = os.getenv("DSH_UPSTREAM", "http://127.0.0.1:3080")
-# 托管 dsh 进程时使用的完整启动命令（含参数，如 "dsh web"）
+# 托管 dsh 进程时的完整启动命令（含参数，如 "dsh web"）
 DSH_COMMAND = os.getenv("DSH_COMMAND", "dsh web")
-# 是否在网关启动时自动拉起 DSH
+# 网关启动时是否自动拉起 DSH（"1" 开）
 DSH_AUTOSTART = os.getenv("DSH_AUTOSTART", "0") == "1"
+# DSH 的独立工作目录（隔离 .env，避免 DSH 读到网关配置而崩溃），默认项目根目录下的 .dsh
+_DSH_HOME_RAW = os.getenv("DSH_HOME", "")
+DSH_HOME = _DSH_HOME_RAW.strip() if _DSH_HOME_RAW.strip() else str(ROOT / ".dsh")
 
+# ====== fail-fast 硬校验 ======
+_parsed = urlparse(DSH_UPSTREAM)
+if _parsed.scheme not in ("http", "https") or not _parsed.netloc:
+    raise RuntimeError(f"DSH_UPSTREAM 非法: {DSH_UPSTREAM}")
+if _parsed.path not in ("", "/"):
+    raise RuntimeError(f"DSH_UPSTREAM 不允许带路径前缀: {DSH_UPSTREAM}")
+if DSH_AUTOSTART and not DSH_COMMAND.strip():
+    raise RuntimeError("DSH_AUTOSTART=1 时 DSH_COMMAND 不能为空")
+if not (0 < SERVER_PORT < 65536):
+    raise RuntimeError(f"SERVER_PORT 非法: {SERVER_PORT}")
 
-# ====== DeepSeek LLM 上游配置 ======
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-# DSH 进程把 LLM 请求指回本网关的路径前缀（与 DEEPSEEK_BASE_URL 配合）
-LLM_PROXY_PATH = "/llm"
-# 是否要求流式响应携带 usage（stream_options.include_usage）
-LLM_FORCE_USAGE = True
+# 重写 Origin/Referer/Location 用的上游"原点"（scheme://host[:port]，不含路径）
+DSH_ORIGIN = f"{_parsed.scheme}://{_parsed.netloc}"
 
-
-# ====== 配额配置 ======
-# 全局池：周期额度（token 数），0 表示不限
-POOL_QUOTA_LIMIT = int(os.getenv("POOL_QUOTA_LIMIT", "0"))
-# 单用户：默认周期额度（token 数，粗略分词估算），可被组配额 / 用户覆写覆盖
-DEFAULT_USER_QUOTA = int(os.getenv("DEFAULT_USER_QUOTA", "100000"))
-# 配额周期（"day" | "month"），当前实现按自然日聚合
-QUOTA_PERIOD = os.getenv("QUOTA_PERIOD", "day")
-
-# 粗略分词折算系数（估算 tokens）
-TOKEN_CJK_PER_CHAR = 1.0        # 中文/日文/韩文：每字约 1 token
-TOKEN_LATIN_PER_WORD = 1.3      # 英文等：每词约 1.3 token
+# 关闭网关自身文档页，避免 /docs 等遮蔽 DSH 的同名路径
+DOCS_URL = None
+REDOC_URL = None
+OPENAPI_URL = None
