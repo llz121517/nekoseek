@@ -1,0 +1,57 @@
+/* NekoSeek 管理后台定制样式 */
+
+/* tab 按钮去掉默认按钮样式 */
+#adminTabs .nav-link {
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--bs-secondary-color);
+  background: transparent;
+}
+
+#adminTabs .nav-link:hover {
+  color: var(--bs-body-color);
+}
+
+#adminTabs .nav-link.active {
+  color: var(--bs-primary);
+  border-bottom-color: var(--bs-primary);
+  background: transparent;
+  font-weight: 500;
+}
+
+/* 页面显隐 */
+.page {
+  display: none;
+}
+
+.page.active {
+  display: block;
+}
+
+/* 消息提示 */
+.msg-ok {
+  color: var(--bs-success);
+}
+
+.msg-err {
+  color: var(--bs-danger);
+}
+
+/* 权限组卡片悬浮效果 */
+.group-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid var(--bs-border-color-translucent);
+}
+
+.group-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.12);
+}
+
+[data-bs-theme="dark"] .group-card:hover {
+  box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.35);
+}
+
+.group-card .card-title {
+  word-break: break-word;
+}

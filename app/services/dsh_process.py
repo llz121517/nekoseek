@@ -133,14 +133,7 @@ def start() -> dict:
 
     # 端口没上线：收集日志后清理
     log_tail = _tail_log()
-    try:
-        _process.terminate()
-        _process.wait(timeout=3)
-    except Exception:
-        try:
-            _process.kill()
-        except Exception:
-            pass
+    _terminate_process_tree(_process)
     _process = None
 
     return {
@@ -153,19 +146,37 @@ def start() -> dict:
     }
 
 
+def _terminate_process_tree(proc: subprocess.Popen) -> None:
+    """
+    终止进程树：Windows 使用 taskkill /F /T，其它平台使用 terminate/kill。
+    """
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                check=False,
+                capture_output=True,
+            )
+        else:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=2)
+    except Exception:
+        pass
+
+
 def stop() -> dict:
-    """停止由本模块拉起的 dsh 子进程。"""
+    """停止由本模块拉起的 dsh 子进程（含可能产生的子进程）。"""
     global _process
     if _process is None or _process.poll() is not None:
         _process = None
         return {"running": False}
-    try:
-        _process.terminate()
-        _process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        _process.kill()
-    except Exception:
-        pass
+    _terminate_process_tree(_process)
     _process = None
     return {"running": False}
 

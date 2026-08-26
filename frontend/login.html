@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="keywords" content="NekoSeek">
+  <meta name="description" content="NekoSeek">
+  <title>NekoSeek - 登录</title>
+  <link rel="shortcut icon" href="/favicon.ico">
+
+  <!-- 主题防闪烁：必须在任何 CSS 之前执行 -->
+  <script>
+    (function () {
+      const key = 'nekoseek-theme';
+      let theme = localStorage.getItem(key);
+      if (!theme) {
+        theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link rel="stylesheet" href="/static/vendor/bootstrap-5.3.3/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/common.css">
+  <link rel="stylesheet" href="/static/css/login.css">
+
+  <script>
+    // 已登录用户自动跳转
+    fetch('/api/v1/auth/check', { method: 'GET', credentials: 'include' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.code === 1 && data.data && data.data.logged_in) {
+          location.href = data.data.is_admin ? '/admin' : '/';
+        }
+      })
+      .catch(err => console.log('无法检查登录状态:', err));
+  </script>
+</head>
+<body class="login-bg d-flex align-items-center justify-content-center p-3">
+  <button type="button" class="theme-toggle position-fixed top-0 end-0 m-3" id="themeToggle" data-theme-icon title="切换主题" aria-label="切换主题">
+    <!-- 图标由 JS 填充 -->
+  </button>
+
+  <div class="card login-card shadow">
+    <div class="card-body p-4 p-md-5">
+      <h4 class="card-title text-center mb-4" id="formTitle">NekoSeek 登录</h4>
+      <form id="authForm" class="needs-validation" novalidate>
+        <div class="form-floating mb-3">
+          <input type="text" class="form-control" name="username" id="username" placeholder="用户名" required minlength="2" maxlength="32">
+          <label for="username">用户名</label>
+          <div class="invalid-feedback">请输入用户名（2-32 位）</div>
+        </div>
+        <div class="form-floating mb-3">
+          <input type="password" class="form-control" name="password" id="password" placeholder="密码" required minlength="6" maxlength="128">
+          <label for="password">密码</label>
+          <div class="invalid-feedback">请输入密码（6-128 位）</div>
+        </div>
+        <div class="form-floating mb-3 d-none" id="inviteBox">
+          <input type="text" class="form-control" name="invite_code" id="invite_code" placeholder="邀请码" disabled>
+          <label for="invite_code">邀请码</label>
+          <div class="invalid-feedback">请输入邀请码</div>
+        </div>
+        <div class="d-grid">
+          <button class="btn btn-primary" type="submit" id="submitBtn">立即登录</button>
+        </div>
+      </form>
+      <hr class="my-4">
+      <p class="text-center text-body-secondary mb-0">
+        <span id="toggleText">没有账号？</span>
+        <a href="#" id="toggleLink">注册</a>
+      </p>
+    </div>
+  </div>
+
+  <script src="/static/vendor/bootstrap-5.3.3/bootstrap.bundle.min.js"></script>
+  <script type="module" src="/static/js/login.js"></script>
+</body>
+</html>

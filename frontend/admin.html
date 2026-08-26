@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NekoSeek 管理后台</title>
+  <link rel="shortcut icon" href="/favicon.ico">
+
+  <script>
+    (function () {
+      const key = 'nekoseek-theme';
+      let theme = localStorage.getItem(key);
+      if (!theme) {
+        theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+
+  <link rel="stylesheet" href="/static/vendor/bootstrap-5.3.3/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/common.css">
+  <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+  <nav class="navbar navbar-expand sticky-top bg-body-tertiary border-bottom">
+    <div class="container-fluid">
+      <a class="navbar-brand fw-semibold" href="/admin">NekoSeek 管理后台</a>
+      <ul class="nav nav-tabs card-header-tabs ms-3" id="adminTabs">
+        <li class="nav-item">
+          <button class="nav-link active" data-page="overview">概览</button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" data-page="users">用户</button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" data-page="groups">权限组</button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" data-page="invites">邀请码</button>
+        </li>
+      </ul>
+      <div class="d-flex align-items-center gap-3 ms-auto">
+        <span class="navbar-text text-body-secondary" id="currentUser"></span>
+        <button type="button" class="theme-toggle" id="themeToggle" data-theme-icon title="切换主题" aria-label="切换主题"></button>
+        <a href="#" class="btn btn-sm btn-outline-danger" id="logoutBtn">登出</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container admin-main">
+    <!-- 概览 -->
+    <section class="page active" id="page-overview">
+      <div class="row row-cols-1 row-cols-md-3 g-3 mb-4" id="overviewStats"></div>
+      <div class="card">
+        <div class="card-body">
+          <h5 class="card-title">DSH 进程</h5>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <button class="btn btn-success" id="dshStart">启动</button>
+            <button class="btn btn-danger" id="dshStop">停止</button>
+            <span class="badge text-bg-secondary" id="dshStatus">查询中…</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 用户 -->
+    <section class="page" id="page-users">
+      <div class="card mb-4">
+        <div class="card-body">
+          <h5 class="card-title">用户列表</h5>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle" id="usersTable">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>用户名</th>
+                  <th>权限组</th>
+                  <th>状态</th>
+                  <th>可用配额</th>
+                  <th>已用配额</th>
+                  <th class="table-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <h5 class="card-title">编辑用户</h5>
+          <form id="userForm" class="row g-3 align-items-end">
+            <div class="col-auto">
+              <label class="form-label-sm" for="editUserSelect">目标用户</label>
+              <select class="form-select" id="editUserSelect"></select>
+            </div>
+            <div class="col-auto">
+              <label class="form-label-sm" for="editGroup">权限组</label>
+              <select class="form-select" id="editGroup"></select>
+            </div>
+            <div class="col-auto">
+              <label class="form-label-sm" for="editQuota">配额覆写</label>
+              <input type="number" class="form-control" id="editQuota" placeholder="留空继承" min="0" style="width:130px">
+            </div>
+            <div class="col-auto">
+              <label class="form-label-sm" for="editPassword">重置密码</label>
+              <input type="text" class="form-control" id="editPassword" placeholder="留空不改" style="width:150px">
+            </div>
+            <div class="col-auto">
+              <label class="form-label-sm" for="editStatus">状态</label>
+              <select class="form-select" id="editStatus">
+                <option value="1">启用</option>
+                <option value="0">停用</option>
+              </select>
+            </div>
+            <div class="col-auto">
+              <button type="button" class="btn btn-primary" id="saveUser">保存</button>
+            </div>
+          </form>
+          <div class="mt-2" id="userMsg"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 权限组 -->
+    <section class="page" id="page-groups">
+      <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3 mb-4" id="groupsCards"></div>
+
+      <div class="card">
+        <div class="card-body">
+          <h5 class="card-title" id="groupFormTitle">新建权限组</h5>
+          <form id="groupForm" class="row g-3 align-items-end">
+            <input type="hidden" id="groupEditId">
+            <div class="col-auto">
+              <label class="form-label-sm" for="groupName">名称</label>
+              <input type="text" class="form-control" id="groupName" placeholder="group-name" style="width:180px">
+            </div>
+            <div class="col-auto">
+              <label class="form-label-sm" for="groupIsAdmin">是否 admin</label>
+              <select class="form-select" id="groupIsAdmin">
+                <option value="0">普通</option>
+                <option value="1">admin</option>
+              </select>
+            </div>
+            <div class="col-auto">
+              <label class="form-label-sm" for="groupQuota">配额限额（0=不限）</label>
+              <input type="number" class="form-control" id="groupQuota" value="0" min="0" style="width:130px">
+            </div>
+            <div class="col-auto d-flex gap-2">
+              <button type="button" class="btn btn-primary" id="saveGroup">创建</button>
+              <button type="button" class="btn btn-outline-secondary d-none" id="cancelEditGroup">取消</button>
+            </div>
+          </form>
+          <div class="mt-2" id="groupMsg"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 邀请码 -->
+    <section class="page" id="page-invites">
+      <div class="card mb-4">
+        <div class="card-body">
+          <h5 class="card-title">生成邀请码</h5>
+          <form id="inviteForm" class="row g-3 align-items-end">
+            <div class="col-auto">
+              <label class="form-label-sm" for="inviteGroup">入组权限组</label>
+              <select class="form-select" id="inviteGroup"></select>
+            </div>
+            <div class="col-auto">
+              <label class="form-label-sm" for="inviteUses">可用次数</label>
+              <input type="number" class="form-control" id="inviteUses" value="1" min="1" style="width:100px">
+            </div>
+            <div class="col-auto">
+              <label class="form-label-sm" for="inviteExpires">过期时间（可选，ISO）</label>
+              <input type="text" class="form-control" id="inviteExpires" placeholder="2026-12-31T23:59:59" style="width:220px">
+            </div>
+            <div class="col-auto">
+              <button type="button" class="btn btn-primary" id="createInvite">生成</button>
+            </div>
+          </form>
+          <div class="mt-2" id="inviteMsg"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <h5 class="card-title">邀请码列表</h5>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle" id="invitesTable">
+              <thead>
+                <tr>
+                  <th>邀请码</th>
+                  <th>权限组</th>
+                  <th>已用/上限</th>
+                  <th>过期</th>
+                  <th>使用者</th>
+                  <th class="table-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/vendor/bootstrap-5.3.3/bootstrap.bundle.min.js"></script>
+  <script type="module" src="/static/js/admin.js"></script>
+</body>
+</html>

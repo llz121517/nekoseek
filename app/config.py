@@ -45,6 +45,25 @@ else:
     DSH_HOME = (ROOT / ".dsh").resolve()
 os.environ["DSH_HOME"] = str(DSH_HOME)
 
+# ====== 认证 / 账户 ======
+# 首次启动且 users 表为空时，使用以下凭据创建初始管理员；之后以数据库为准，可移除。
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+
+# ====== Session / Cookie ======
+SESSION_COOKIE_KEY = "session_id"
+SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(7 * 24 * 60 * 60)))
+SESSION_CLEANUP_AGE = int(os.getenv("SESSION_CLEANUP_AGE", "600"))
+SESSION_HTTPONLY = True
+SESSION_SAMESITE = "lax"
+SESSION_SECURE = os.getenv("SESSION_SECURE", "0") == "1"  # 仅 HTTPS 部署时启用
+
+# ====== 数据库路径 ======
+# 双库分离：data.db 存用户/权限组/邀请码，cache.db 存会话。
+DB_DIR = ROOT / "data" / "db"
+DATA_DB_PATH = DB_DIR / "data.db"
+CACHE_DB_PATH = DB_DIR / "cache.db"
+
 # ====== fail-fast 硬校验 ======
 _parsed = urlparse(DSH_UPSTREAM)
 if _parsed.scheme not in ("http", "https") or not _parsed.netloc:

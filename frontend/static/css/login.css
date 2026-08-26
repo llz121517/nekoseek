@@ -1,0 +1,31 @@
+/* NekoSeek 登录页定制样式 */
+
+.login-bg {
+  min-height: 100vh;
+}
+
+/* 卡片半透明 + 毛玻璃效果 */
+.login-card {
+  background-color: rgba(var(--bs-body-bg-rgb), 0.72);
+  border-radius: 1.25rem;
+  border: 1px solid rgba(var(--bs-body-color-rgb), 0.08);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.15);
+}
+
+[data-bs-theme="dark"] .login-card {
+  background-color: rgba(var(--bs-body-bg-rgb), 0.68);
+  border-color: rgba(var(--bs-body-color-rgb), 0.12);
+  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.35);
+}
+
+/* 注册切换链接 */
+#toggleLink {
+  color: var(--bs-primary);
+  text-decoration: none;
+}
+
+#toggleLink:hover {
+  text-decoration: underline;
+}

@@ -1,0 +1,117 @@
+# app/core/db/init_db.py
+"""
+数据库初始化：双库建表 + 播种默认权限组与管理员
+"""
+import sqlite3
+
+from app.config import ADMIN_USERNAME, ADMIN_PASSWORD, DATA_DB_PATH, CACHE_DB_PATH, DB_DIR
+from app.core.db.db import get_data_conn, get_cache_conn
+from app.core.security import hash_password
+
+USER_SQL = """
+CREATE TABLE IF NOT EXISTS groups (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    is_admin    INTEGER NOT NULL DEFAULT 0,
+    quota_limit INTEGER NOT NULL DEFAULT 0,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    username       TEXT NOT NULL UNIQUE,
+    pwd_hash       TEXT NOT NULL,
+    salt           TEXT NOT NULL,
+    group_id       INTEGER NOT NULL,
+    quota_override INTEGER,
+    used_quota     INTEGER NOT NULL DEFAULT 0,
+    status         INTEGER NOT NULL DEFAULT 1,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (group_id) REFERENCES groups(id)
+);
+CREATE INDEX IF NOT EXISTS idx_users_group ON users(group_id);
+
+CREATE TABLE IF NOT EXISTS invite_codes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    code        TEXT NOT NULL UNIQUE,
+    group_id    INTEGER NOT NULL,
+    created_by  INTEGER,
+    max_uses    INTEGER NOT NULL DEFAULT 1,
+    used_count  INTEGER NOT NULL DEFAULT 0,
+    expires_at  TEXT,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (group_id) REFERENCES groups(id)
+);
+CREATE INDEX IF NOT EXISTS idx_invite_code ON invite_codes(code);
+
+CREATE TABLE IF NOT EXISTS invite_code_uses (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    invite_code_id INTEGER NOT NULL,
+    user_id        INTEGER NOT NULL,
+    used_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (invite_code_id) REFERENCES invite_codes(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_invite_code_uses_code ON invite_code_uses(invite_code_id);
+CREATE INDEX IF NOT EXISTS idx_invite_code_uses_user ON invite_code_uses(user_id);
+"""
+
+CACHE_SQL = """
+CREATE TABLE IF NOT EXISTS sessions (
+    sid       TEXT PRIMARY KEY,
+    user_id   INTEGER NOT NULL,
+    expire_ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire_ts);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+"""
+
+
+def _init_data_db() -> None:
+    conn = get_data_conn()
+    conn.executescript(USER_SQL)
+
+    # 播种默认权限组
+    cur = conn.execute("SELECT COUNT(*) FROM groups")
+    if cur.fetchone()[0] == 0:
+        conn.execute(
+            "INSERT INTO groups (name, is_admin, quota_limit) VALUES (?, ?, ?)",
+            ("admin", 1, 0),
+        )
+        conn.execute(
+            "INSERT INTO groups (name, is_admin, quota_limit) VALUES (?, ?, ?)",
+            ("user", 0, 0),
+        )
+        conn.commit()
+
+    # 仅当无用户时，从 .env 播种初始管理员
+    cur = conn.execute("SELECT COUNT(*) FROM users")
+    if cur.fetchone()[0] == 0:
+        if not ADMIN_PASSWORD:
+            raise ValueError(
+                "ADMIN_PASSWORD is empty! Please set it in .env for first-time bootstrap."
+            )
+        admin_group = conn.execute(
+            "SELECT id FROM groups WHERE name = 'admin'"
+        ).fetchone()
+        pwd_hash, salt = hash_password(ADMIN_PASSWORD)
+        conn.execute(
+            "INSERT INTO users (username, pwd_hash, salt, group_id) VALUES (?, ?, ?, ?)",
+            (ADMIN_USERNAME.strip(), pwd_hash, salt, admin_group["id"]),
+        )
+        conn.commit()
+        print("Initial admin credential imported from .env into the database.")
+
+
+def _init_cache_db() -> None:
+    conn = get_cache_conn()
+    conn.executescript(CACHE_SQL)
+
+
+def init_db() -> None:
+    """
+    初始化数据库：建文件夹 + 建表 + 播种默认组与管理员。
+    """
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+    _init_data_db()
+    _init_cache_db()
