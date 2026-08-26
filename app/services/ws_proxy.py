@@ -5,11 +5,13 @@ WebSocket 隧道：任意 Upgrade 路径透明转发到 DSH 上游。
 虽然是 catch-all，但 DSH 的事件流通常是服务器 → 浏览器单向下行；
 这里使用双向泵，浏览器上行也会原样转发，保持真正的"透明反代"语义。
 
-配额计量（输出）：DSH 的 mux 下行帧线格式为
+配额计量（仅输出）：DSH 的 mux 下行帧线格式为
 {"type":"server-request","rpcId":...,"method":"session/event","payload":{...session/event...}}；
-payload.event.type=assistant/message 时，event.data.usage 携带真实
-{prompt_tokens, completion_tokens}；这里解析并累加到配额。
-usage 缺失时退化为对 message.content 里的文本粗略分词估算。
+payload.event.type=assistant/message 时，event.data.usage 携带
+{inputTokens, outputTokens}。其中 inputTokens 是累计式完整 prompt 输入，
+已由 HTTP 侧（proxy.py 的 _account_prompt_input）估算记账，故本侧只取
+outputTokens 记输出，避免输入双计。usage 缺失时退化为对 message.content
+文本粗略分词估算输出。
 """
 import asyncio
 import json
@@ -20,6 +22,8 @@ from websockets.asyncio.client import connect as ws_connect
 
 from app.config import DSH_UPSTREAM, DSH_ORIGIN
 from app.core import quota, tokenize
+from app.core.session import get_session_user_id
+from app.core.db import db_op
 
 logger = logging.getLogger("nekoseek.ws_proxy")
 
@@ -83,11 +87,13 @@ async def proxy_ws(websocket: WebSocket, path: str, user: dict | None = None) ->
     """接受浏览器 WS 连接，连到 DSH 上游对应 WS，双向泵发数据。"""
     await websocket.accept()
     upstream_url = _upstream_ws_url(path)
+    # WS 握手时 Cookie 头固定不变，缓存下来供每帧实时解析当前用户。
+    cookie_header = websocket.headers.get("cookie", "")
 
     try:
         # 必须带上 Origin，否则 DSH 握手阶段可能因缺少 Origin 而 403。
         async with ws_connect(upstream_url, open_timeout=10.0, origin=DSH_ORIGIN) as upstream:
-            await _pump(upstream, websocket, user)
+            await _pump(upstream, websocket, cookie_header)
     except Exception as e:
         logger.warning("WS 隧道 %s 异常: %r", path, e)
         try:
@@ -96,8 +102,49 @@ async def proxy_ws(websocket: WebSocket, path: str, user: dict | None = None) ->
             pass
 
 
-async def _pump(upstream, downstream: WebSocket, user: dict | None = None) -> None:
+def _sid_from_cookie(cookie_header: str) -> str | None:
+    """从 Cookie 头取 session_id（WS 握手后该头在整个连接期不变）。"""
+    for part in cookie_header.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == "session_id":
+            return value or None
+    return None
+
+
+def _make_user_resolver(cookie_header: str):
+    """
+    返回一个"按当前 session 实时解析用户"的闭包。
+
+    为何不用连接建立时传入的 user 快照：另一条标签页退出并改登其他用户后，
+    本连接快照仍指向旧用户，会造成同一次对话的输入（HTTP 按当前 cookie 计）
+    与输出（WS 按旧快照计）记到不同用户。改为每帧都按 sid 实时校验 session
+    有效性——session 被删除/踢掉后立即返回 None（不再用旧身份记账），使 WS
+    输出记账与 HTTP 输入记账的口径一致。user 对象按 user_id 缓存以减少查库。
+    """
+    sid = _sid_from_cookie(cookie_header)
+    cache = {"user_id": None, "user": None}
+
+    def resolve() -> dict | None:
+        if not sid:
+            return None
+        # 每帧校验 session 是否仍有效（主键查询，开销极小）；失效即不再记账。
+        user_id = get_session_user_id(sid)
+        if user_id is None:
+            cache["user_id"] = None
+            cache["user"] = None
+            return None
+        if cache["user_id"] != user_id or cache["user"] is None:
+            user = db_op.get_user_by_id(user_id)
+            cache["user_id"] = user_id
+            cache["user"] = user if (user and user.get("status")) else None
+        return cache["user"]
+
+    return resolve
+
+
+async def _pump(upstream, downstream: WebSocket, cookie_header: str = "") -> None:
     """双向泵：浏览器 <-> 上游全双工，任一侧结束即清理，避免泄漏。"""
+    resolve_user = _make_user_resolver(cookie_header)
 
     async def upstream_to_downstream():
         async for message in upstream:
@@ -106,14 +153,17 @@ async def _pump(upstream, downstream: WebSocket, user: dict | None = None) -> No
             else:
                 text = str(message)
                 await downstream.send_text(text)
+                user = resolve_user()
                 if user is not None:
                     usage = _extract_assistant_message(text)
                     if usage is not None:
-                        prompt_tok, completion_tok = usage
-                        if prompt_tok > 0 or completion_tok > 0:
+                        # 只记输出：usage 里的 inputTokens 是累计式完整 prompt 输入，
+                        # 而 HTTP 侧 _account_prompt_input 已对 prompt 做过输入估算记账，
+                        # 这里再记 prompt_tok 会双计。WS 侧仅补充真实 completion 输出。
+                        _prompt_tok, completion_tok = usage
+                        if completion_tok > 0:
                             quota.record_usage(
                                 user["id"],
-                                input_tokens=prompt_tok,
                                 output_tokens=completion_tok,
                             )
 
