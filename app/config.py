@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 项目根目录（app/config.py 的上上级）
-ROOT = Path(__file__).parent.parent
+# 项目根目录（app/config.py 的上上级），用 resolve() 转成绝对路径
+ROOT = Path(__file__).resolve().parent.parent
 
 # ====== 服务启动配置 ======
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
@@ -37,8 +37,13 @@ DSH_COMMAND = os.getenv("DSH_COMMAND", "dsh web")
 # 网关启动时是否自动拉起 DSH（"1" 开）
 DSH_AUTOSTART = os.getenv("DSH_AUTOSTART", "0") == "1"
 # DSH 的独立工作目录（隔离 .env，避免 DSH 读到网关配置而崩溃），默认项目根目录下的 .dsh
+# 这里会解析成绝对路径并写回 os.environ，确保 DSH 子进程能真正读到 $DSH_HOME。
 _DSH_HOME_RAW = os.getenv("DSH_HOME", "")
-DSH_HOME = _DSH_HOME_RAW.strip() if _DSH_HOME_RAW.strip() else str(ROOT / ".dsh")
+if _DSH_HOME_RAW.strip():
+    DSH_HOME = Path(os.path.expanduser(_DSH_HOME_RAW.strip())).resolve()
+else:
+    DSH_HOME = (ROOT / ".dsh").resolve()
+os.environ["DSH_HOME"] = str(DSH_HOME)
 
 # ====== fail-fast 硬校验 ======
 _parsed = urlparse(DSH_UPSTREAM)
