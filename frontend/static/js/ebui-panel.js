@@ -21,6 +21,9 @@
       logout: '退出登录',
       loggingOut: '正在退出…',
       brand: 'NekoSeek',
+      collapse: '收起',
+      expand: '展开面板',
+      contactAdmin: '全局额度已用完，请联系管理员',
     },
     'en': {
       quota: 'Quota',
@@ -29,8 +32,13 @@
       logout: 'Log out',
       loggingOut: 'Logging out…',
       brand: 'NekoSeek',
+      collapse: 'Collapse',
+      expand: 'Expand panel',
+      contactAdmin: 'Global quota exhausted, please contact the administrator',
     },
   };
+
+  var COLLAPSED_KEY = 'nekoseek-panel-collapsed';
 
   function normalizeLang(raw) {
     if (!raw) return null;
@@ -57,7 +65,10 @@
   // ---------- 面板 DOM ----------
 
   var panel = null;
-  var usernameEl, quotaEl, usedEl, barFillEl, logoutBtn, quotaLabelEl, usedLabelEl;
+  var usernameEl, quotaEl, usedEl, barFillEl, logoutBtn, quotaLabelEl, usedLabelEl, toggleBtn, noticeEl;
+  var collapsed = false;
+
+  try { collapsed = localStorage.getItem(COLLAPSED_KEY) === '1'; } catch (e) {}
 
   function buildPanel() {
     panel = document.createElement('div');
@@ -68,6 +79,14 @@
     var brand = document.createElement('span');
     brand.className = 'nsp-brand';
     head.appendChild(brand);
+    toggleBtn = document.createElement('button');
+    toggleBtn.className = 'nsp-toggle';
+    toggleBtn.type = 'button';
+    toggleBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      setCollapsed(!collapsed);
+    });
+    head.appendChild(toggleBtn);
     panel.appendChild(head);
 
     var body = document.createElement('div');
@@ -102,6 +121,11 @@
     bar.appendChild(barFillEl);
     body.appendChild(bar);
 
+    noticeEl = document.createElement('div');
+    noticeEl.className = 'nsp-notice';
+    noticeEl.hidden = true;
+    body.appendChild(noticeEl);
+
     logoutBtn = document.createElement('button');
     logoutBtn.className = 'nsp-logout';
     logoutBtn.type = 'button';
@@ -125,6 +149,24 @@
     quotaLabelEl.textContent = t('quota');
     usedLabelEl.textContent = t('used');
     logoutBtn.textContent = logoutBtn.disabled ? t('loggingOut') : t('logout');
+    noticeEl.textContent = t('contactAdmin');
+    updateToggleBtn();
+  }
+
+  // ---------- 收起 / 展开 ----------
+
+  function setCollapsed(value) {
+    collapsed = value;
+    panel.classList.toggle('nsp-collapsed', collapsed);
+    try { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (e) {}
+    updateToggleBtn();
+  }
+
+  function updateToggleBtn() {
+    if (!toggleBtn) return;
+    toggleBtn.textContent = collapsed ? '«' : '»';
+    toggleBtn.title = collapsed ? t('expand') : t('collapse');
+    toggleBtn.setAttribute('aria-label', collapsed ? t('expand') : t('collapse'));
   }
 
   function render(data) {
@@ -148,6 +190,13 @@
       barFillEl.style.width = '0%';
       barFillEl.classList.remove('nsp-danger');
     }
+
+    // 全局额度预留提示：全局已用完但个人仍有剩余时提示联系管理员。
+    // 当前后端 pool 恒为 {limit:0,used:0,remaining:null}（不限），不触发。
+    var pool = data.pool || {};
+    var poolExhausted = pool.limit > 0 && pool.remaining !== null && pool.remaining <= 0;
+    var personalLeft = limit <= 0 || (limit - used) > 0;
+    noticeEl.hidden = !(poolExhausted && personalLeft);
   }
 
   // ---------- 数据轮询 ----------
@@ -197,6 +246,11 @@
     buildPanel();
     ensureMounted();
     applyI18n();
+    setCollapsed(collapsed);
+    // 收起状态下点击面板任意处也可展开
+    panel.addEventListener('click', function () {
+      if (collapsed) setCollapsed(false);
+    });
     langObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['lang'],

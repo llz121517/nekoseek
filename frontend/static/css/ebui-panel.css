@@ -12,10 +12,54 @@
   font: 12px/1.6 sans-serif;
   color: #cbd5e1;
   backdrop-filter: blur(4px);
+  transition: transform 0.25s ease;
 }
 
 #nekoseek-panel .nsp-head {
-  padding: 8px 14px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px 0 14px;
+}
+
+#nekoseek-panel .nsp-toggle {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+#nekoseek-panel .nsp-toggle:hover {
+  color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+/* 收起：滑到右边缘只露一条，点击展开 */
+#nekoseek-panel.nsp-collapsed {
+  transform: translateX(calc(100% - 14px));
+  right: 0;
+  border-radius: 10px 0 0 10px;
+  cursor: pointer;
+}
+
+#nekoseek-panel.nsp-collapsed:hover {
+  transform: translateX(calc(100% - 20px));
+}
+
+#nekoseek-panel.nsp-collapsed .nsp-body,
+#nekoseek-panel.nsp-collapsed .nsp-brand {
+  visibility: hidden;
+}
+
+#nekoseek-panel.nsp-collapsed .nsp-head {
+  padding: 8px 4px;
 }
 
 #nekoseek-panel .nsp-brand {
@@ -76,6 +120,17 @@
 
 #nekoseek-panel .nsp-bar-fill.nsp-danger {
   background: #ef4444;
+}
+
+#nekoseek-panel .nsp-notice {
+  margin: 0 0 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 #nekoseek-panel .nsp-logout {
