@@ -9,6 +9,11 @@ from app.core.db.db import get_data_conn
 from app.core.security import hash_password, generate_invite_code
 
 
+# 哨兵：区分"参数未传"与"传了 None"。quota_override 的 None 是合法值（清除覆写、继承组），
+# 无法像其它字段那样用 None 表示"不改"，故单独用 UNSET 哨兵标记"本次不动该列"。
+UNSET = object()
+
+
 # ---------- 权限组 ----------
 
 
@@ -120,15 +125,12 @@ def update_user(
     user_id: int,
     password: str | None = None,
     group_id: int | None = None,
-    quota_override: int | None = None,
+    quota_override: "int | None | object" = UNSET,
     status: int | None = None,
-    *,
-    _quota_override_set: bool = False,
 ) -> bool:
     """
     password/group_id/status 以 None 表示"不改"；
-    quota_override 比较特殊（None 既是合法值也是默认"不改"），
-    由 _quota_override_set 显式标记本次是否要写入（含写入 None 表示清除覆写）。
+    quota_override 以 UNSET 表示"不改"，显式传 None 则写入 NULL（清除覆写、继承组）。
     """
     conn = get_data_conn()
     parts, params = [], []
@@ -141,7 +143,7 @@ def update_user(
     if group_id is not None:
         parts.append("group_id = ?")
         params.append(group_id)
-    if _quota_override_set:
+    if quota_override is not UNSET:
         parts.append("quota_override = ?")
         params.append(quota_override)
     if status is not None:
@@ -281,6 +283,23 @@ def list_invites() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def list_invite_usernames(invite_code_id: int) -> list[str]:
+    """
+    列出使用过某邀请码的所有用户名（JOIN 一次查回，供后台展示）。
+    """
+    rows = get_data_conn().execute(
+        """
+        SELECT u.username
+        FROM invite_code_uses icu
+        JOIN users u ON u.id = icu.user_id
+        WHERE icu.invite_code_id = ?
+        ORDER BY icu.used_at
+        """,
+        (invite_code_id,),
+    ).fetchall()
+    return [r["username"] for r in rows]
+
+
 def consume_invite(code: str) -> dict | None:
     """
     校验并消费邀请码：未过期、未超用、状态有效则 used_count+1，返回邀请码记录；否则返回 None。
@@ -320,17 +339,6 @@ def record_invite_use(invite_code_id: int, user_id: int) -> None:
         (invite_code_id, user_id),
     )
     conn.commit()
-
-
-def list_invite_uses(invite_code_id: int) -> list[dict]:
-    """
-    列出某邀请码的所有使用记录。
-    """
-    rows = get_data_conn().execute(
-        "SELECT * FROM invite_code_uses WHERE invite_code_id = ? ORDER BY used_at",
-        (invite_code_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
 
 
 def delete_invite(code: str) -> bool:

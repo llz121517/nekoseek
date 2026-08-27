@@ -30,6 +30,7 @@ from app.core.db import db_op
 from app.core import quota
 from app.core.auth import (
     RedirectToLogin,
+    _resolve_current_user,
     admin_required,
     get_current_user_or_redirect,
 )
@@ -174,7 +175,6 @@ async def webui_proxy(request: Request, path: str):
     """
     if _is_prompt_request(request, path):
         # get_current_user_or_redirect 已在 dependencies 里跑过，这里再解一次拿 user
-        from app.core.auth import _resolve_current_user
         user = _resolve_current_user(request)
         if user and (not quota.check_user_quota(user) or not quota.check_global_quota()):
             return JSONResponse(

@@ -1,7 +1,7 @@
 /**
  * NekoSeek EBUI 注入面板
  * - 右下角悬浮：当前用户名 / 限额 / 已用额度 / 退出登录
- * - 每 3 秒轮询 GET /api/v1/panel/me
+ * - 每 1 秒轮询 GET /api/v1/panel/me
  * - 语言跟随 DSH 页面：实测 DSH locale 插件切换语言时修改 <html lang>，
  *   用 MutationObserver 监听该属性即时切换文案，navigator.language 兜底。
  */
@@ -11,7 +11,7 @@
   if (window.__nekoseekPanelLoaded) return;
   window.__nekoseekPanelLoaded = true;
 
-  var POLL_INTERVAL = 3000;
+  var POLL_INTERVAL = 1000;
 
   var I18N = {
     'zh-CN': {
@@ -45,6 +45,12 @@
   };
 
   var COLLAPSED_KEY = 'nekoseek-panel-collapsed';
+  var REPO_URL = 'https://github.com/llz121517/nekoseek';
+
+  function githubIconSvg() {
+    return '<svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true">'
+      + '<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>';
+  }
 
   function normalizeLang(raw) {
     if (!raw) return null;
@@ -92,6 +98,17 @@
     var brand = document.createElement('span');
     brand.className = 'nsp-brand';
     head.appendChild(brand);
+    // GitHub 仓库链接（新标签页打开，拦截冒泡避免触发收起面板的整片点击）
+    var repoLink = document.createElement('a');
+    repoLink.className = 'nsp-github';
+    repoLink.href = REPO_URL;
+    repoLink.target = '_blank';
+    repoLink.rel = 'noopener noreferrer';
+    repoLink.title = 'GitHub';
+    repoLink.setAttribute('aria-label', 'GitHub');
+    repoLink.innerHTML = githubIconSvg();
+    repoLink.addEventListener('click', function (e) { e.stopPropagation(); });
+    head.appendChild(repoLink);
     toggleBtn = document.createElement('button');
     toggleBtn.className = 'nsp-toggle';
     toggleBtn.type = 'button';

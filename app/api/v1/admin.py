@@ -135,8 +135,7 @@ async def update_user(user_id: int, payload: UserUpdate):
         password=data.get("password"),
         group_id=data.get("group_id"),
         status=data.get("status"),
-        quota_override=data.get("quota_override"),
-        _quota_override_set="quota_override" in data,
+        quota_override=data["quota_override"] if "quota_override" in data else db_op.UNSET,
     )
     return {"code": 1 if ok else 0, "msg": "更新成功" if ok else "未变更"}
 
@@ -195,13 +194,7 @@ class InviteIn(BaseModel):
 async def list_invites():
     invites = db_op.list_invites()
     for inv in invites:
-        uses = db_op.list_invite_uses(inv["id"])
-        users = []
-        for u in uses:
-            user = db_op.get_user_by_id(u["user_id"])
-            if user:
-                users.append(user["username"])
-        inv["used_by_users"] = users
+        inv["used_by_users"] = db_op.list_invite_usernames(inv["id"])
     return {"code": 1, "msg": "ok", "data": invites}
 
 

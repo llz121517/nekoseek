@@ -23,7 +23,6 @@ async def panel_me(user: dict = Depends(get_current_user)):
         "data": {
             "username": user["username"],
             "window": summary["window"],
-            "window_start": summary["window_start"],
             "user": summary["user"],
             "pool": summary["pool"],
         },

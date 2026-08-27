@@ -36,6 +36,30 @@
   transition: color 0.15s ease, background 0.15s ease;
 }
 
+#nekoseek-panel .nsp-github {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  margin-right: 2px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: #64748b;
+  line-height: 1;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+#nekoseek-panel .nsp-github:hover {
+  color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+/* 收起时与品牌名一同隐藏 */
+#nekoseek-panel.nsp-collapsed .nsp-github {
+  visibility: hidden;
+}
+
 #nekoseek-panel .nsp-toggle:hover {
   color: #e2e8f0;
   background: rgba(148, 163, 184, 0.15);

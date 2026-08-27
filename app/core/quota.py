@@ -5,9 +5,8 @@
 """
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from app.config import QUOTA_CJK_PER_CHAR, QUOTA_LATIN_PER_WORD  # noqa: F401  (re-export for debug)
 from app.core.db import db_op
 from app.core.db import stats_op
 
@@ -90,9 +89,8 @@ def current_window_start(kind: str | None = None, now: float | None = None) -> i
     if kind == "day":
         start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
     elif kind == "week":
-        start = (dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                 .__class__.fromtimestamp(dt.timestamp() - dt.weekday() * 86400)
-                 .replace(hour=0, minute=0, second=0, microsecond=0))
+        monday = dt - timedelta(days=dt.weekday())
+        start = monday.replace(hour=0, minute=0, second=0, microsecond=0)
     elif kind == "month":
         start = dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     else:
@@ -205,18 +203,13 @@ def quota_summary(user: dict) -> dict:
     pool_limit = get_global_limit()
     return {
         "window": kind,
-        "window_start": ws,
         "user": {
             "used": user_usage["total_tokens"],
-            "input": user_usage["input_tokens"],
-            "output": user_usage["output_tokens"],
             "limit": user_limit,
             "remaining": max(0, user_limit - user_usage["total_tokens"]) if user_limit > 0 else None,
         },
         "pool": {
             "used": pool_usage["total_tokens"],
-            "input": pool_usage["input_tokens"],
-            "output": pool_usage["output_tokens"],
             "limit": pool_limit,
             "remaining": max(0, pool_limit - pool_usage["total_tokens"]) if pool_limit > 0 else None,
         },
