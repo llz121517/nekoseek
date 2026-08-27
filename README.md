@@ -89,8 +89,22 @@ app/
   core/         auth / session / quota / security / tokenize / db
   services/     proxy(HTTP) / ws_proxy(WS) / inject / dsh_process / dsh_env / ds_balance
 frontend/       login / admin 页面 + 注入面板静态资源
+tests/          pytest 测试（单元 + 集成，覆盖核心逻辑）
 tools/          诊断脚本
 data/db/        SQLite 数据（运行时生成）
 .dsh/           DSH 独立工作目录
 run.py          启动入口
 ```
+
+## 测试
+
+```bash
+pip install -r requirements-dev.txt   # 含 pytest / pytest-asyncio
+pytest                                 # 运行全部测试
+```
+
+测试通过 `tests/conftest.py` 把三个 SQLite 库重定向到临时目录、补丁 thread-local 连接，做到用例间完全隔离，不会读写真实 `data/db/`。HTTP/WS 上游用 mock 替身，无需真实 DSH 进程。
+
+## 许可证
+
+[MIT](LICENSE) © llz121517

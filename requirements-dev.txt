@@ -1,0 +1,4 @@
+# 测试依赖（非运行时必需）
+-r requirements.txt
+pytest>=8.0
+pytest-asyncio>=0.23
