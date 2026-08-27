@@ -1,31 +1,170 @@
-/* NekoSeek 登录页定制样式 */
+/* NekoSeek 登录页定制样式（仿 Natayark 账户中心：左侧毛玻璃登录卡片 + 右侧壁纸留白） */
 
 .login-bg {
   min-height: 100vh;
+  /* 背景壁纸沿用 common.css 中的 /static/img/background.webp */
 }
 
-/* 卡片半透明 + 毛玻璃效果 */
-.login-card {
-  background-color: rgba(var(--bs-body-bg-rgb), 0.72);
+/* 关闭 common.css 中针对图片背景的全屏遮罩（避免壁纸发灰） */
+.login-bg::before {
+  content: none;
+}
+
+/* 左侧登录卡片：离上/下/左三边留距，带圆角，毛玻璃 */
+.login-panel {
+  width: min(420px, calc(100vw - 2.5rem));
+  margin: 1.25rem 0 1.25rem clamp(1.25rem, 4.5vw, 4rem);
+  height: calc(100vh - 2.5rem);
+  display: flex;
   border-radius: 1.25rem;
-  border: 1px solid rgba(var(--bs-body-color-rgb), 0.08);
-  backdrop-filter: blur(14px) saturate(160%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
-  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  color: var(--nk-panel-text);
+  background-color: var(--nk-panel-bg);
+  border: 1px solid var(--nk-panel-border);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.18);
 }
 
-[data-bs-theme="dark"] .login-card {
-  background-color: rgba(var(--bs-body-bg-rgb), 0.68);
-  border-color: rgba(var(--bs-body-color-rgb), 0.12);
-  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.35);
+/* —— 主题变量：浅色 / 深色 —— */
+:root,
+[data-bs-theme="light"] {
+  --nk-panel-bg: rgba(255, 255, 255, 0.62);
+  --nk-panel-border: rgba(255, 255, 255, 0.55);
+  --nk-panel-text: #212529;
+  --nk-panel-title: #111418;
+  --nk-panel-label: rgba(33, 37, 41, 0.72);
+  --nk-panel-muted: rgba(33, 37, 41, 0.55);
+  --nk-input-bg: rgba(255, 255, 255, 0.65);
+  --nk-input-border: rgba(0, 0, 0, 0.18);
+  --nk-input-text: #212529;
+  --nk-input-placeholder: rgba(33, 37, 41, 0.45);
+  --nk-input-focus-bg: rgba(255, 255, 255, 0.85);
+  --nk-invalid: #c93a3e;
+  --nk-link: #1a6fd4;
 }
 
-/* 注册切换链接 */
+[data-bs-theme="dark"] {
+  --nk-panel-bg: rgba(18, 20, 24, 0.55);
+  --nk-panel-border: rgba(255, 255, 255, 0.10);
+  --nk-panel-text: #f1f3f5;
+  --nk-panel-title: #ffffff;
+  --nk-panel-label: rgba(241, 243, 245, 0.75);
+  --nk-panel-muted: rgba(241, 243, 245, 0.45);
+  --nk-input-bg: rgba(255, 255, 255, 0.10);
+  --nk-input-border: rgba(255, 255, 255, 0.18);
+  --nk-input-text: #ffffff;
+  --nk-input-placeholder: rgba(255, 255, 255, 0.45);
+  --nk-input-focus-bg: rgba(255, 255, 255, 0.16);
+  --nk-invalid: #ff8a8a;
+  --nk-link: #6fb2ff;
+}
+
+.login-panel__inner {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: clamp(2rem, 8vh, 5rem) 2.25rem 1.5rem;
+}
+
+.login-panel__title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--nk-panel-title);
+  margin-bottom: 1.75rem;
+  letter-spacing: 0.01em;
+}
+
+/* 表单标签 */
+.login-panel .form-label {
+  font-size: 0.85rem;
+  color: var(--nk-panel-label);
+  margin-bottom: 0.35rem;
+}
+
+/* 输入框：半透明，与面板融合 */
+.login-panel .form-control {
+  background-color: var(--nk-input-bg);
+  border: 1px solid var(--nk-input-border);
+  color: var(--nk-input-text);
+  border-radius: 0.5rem;
+}
+
+.login-panel .form-control::placeholder {
+  color: var(--nk-input-placeholder);
+}
+
+.login-panel .form-control:focus {
+  background-color: var(--nk-input-focus-bg);
+  border-color: #2080f0;
+  box-shadow: 0 0 0 0.2rem rgba(32, 128, 240, 0.25);
+  color: var(--nk-input-text);
+}
+
+/* 校验失败提示 */
+.login-panel .invalid-feedback {
+  color: var(--nk-invalid);
+}
+
+/* 主按钮：主题蓝 + 圆角 */
+.login-panel .btn-primary {
+  --bs-btn-bg: #2080f0;
+  --bs-btn-border-color: #2080f0;
+  --bs-btn-hover-bg: #4098fc;
+  --bs-btn-hover-border-color: #4098fc;
+  --bs-btn-active-bg: #1060c9;
+  --bs-btn-active-border-color: #1060c9;
+  --bs-btn-disabled-bg: #2080f0;
+  --bs-btn-disabled-border-color: #2080f0;
+  border-radius: 0.5rem;
+  padding-block: 0.55rem;
+  font-weight: 500;
+}
+
+/* 注册/登录切换 */
+.login-panel__switch {
+  font-size: 0.875rem;
+  color: var(--nk-panel-muted);
+  margin-top: 0.5rem;
+}
+
 #toggleLink {
-  color: var(--bs-primary);
+  color: var(--nk-link);
   text-decoration: none;
 }
 
 #toggleLink:hover {
   text-decoration: underline;
+}
+
+/* 底部版权信息：贴面板底部 */
+.login-panel__footer {
+  margin-top: auto;
+  padding-top: 2rem;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--nk-panel-muted);
+}
+
+/* 主题切换按钮：在壁纸背景上保持可读 */
+.login-bg .theme-toggle {
+  background-color: var(--nk-panel-bg);
+  border-color: var(--nk-panel-border);
+  color: var(--nk-panel-text);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  box-shadow: 0 0.25rem 1rem rgba(0, 0, 0, 0.12);
+}
+
+.login-bg .theme-toggle:hover {
+  background-color: var(--nk-input-focus-bg);
+}
+
+/* 窄屏：卡片留距收窄 */
+@media (max-width: 480px) {
+  .login-panel {
+    width: calc(100vw - 1.5rem);
+    height: calc(100vh - 1.5rem);
+    margin: 0.75rem;
+  }
 }

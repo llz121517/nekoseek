@@ -37,41 +37,51 @@
       .catch(err => console.log('无法检查登录状态:', err));
   </script>
 </head>
-<body class="login-bg d-flex align-items-center justify-content-center p-3">
+<body class="login-bg">
   <button type="button" class="theme-toggle position-fixed top-0 end-0 m-3" id="themeToggle" data-theme-icon title="切换主题" aria-label="切换主题">
     <!-- 图标由 JS 填充 -->
   </button>
 
-  <div class="card login-card shadow">
-    <div class="card-body p-4 p-md-5">
-      <h4 class="card-title text-center mb-4" id="formTitle">NekoSeek 登录</h4>
+  <!-- 左侧通顶登录面板（毛玻璃），右侧留白给壁纸 -->
+  <aside class="login-panel">
+    <div class="login-panel__inner">
+      <h1 class="login-panel__title" id="formTitle">登录 NekoSeek</h1>
+
       <form id="authForm" class="needs-validation" novalidate>
-        <div class="form-floating mb-3">
+        <div class="mb-3">
+          <label for="username" class="form-label">用户名 <span class="text-danger">*</span></label>
           <input type="text" class="form-control" name="username" id="username" placeholder="用户名" required minlength="2" maxlength="32">
-          <label for="username">用户名</label>
           <div class="invalid-feedback">请输入用户名（2-32 位）</div>
         </div>
-        <div class="form-floating mb-3">
+
+        <div class="mb-3">
+          <label for="password" class="form-label">密码 <span class="text-danger">*</span></label>
           <input type="password" class="form-control" name="password" id="password" placeholder="密码" required minlength="6" maxlength="128">
-          <label for="password">密码</label>
           <div class="invalid-feedback">请输入密码（6-128 位）</div>
         </div>
-        <div class="form-floating mb-3 d-none" id="inviteBox">
+
+        <div class="mb-3 d-none" id="inviteBox">
+          <label for="invite_code" class="form-label">邀请码 <span class="text-danger">*</span></label>
           <input type="text" class="form-control" name="invite_code" id="invite_code" placeholder="邀请码" disabled>
-          <label for="invite_code">邀请码</label>
           <div class="invalid-feedback">请输入邀请码</div>
         </div>
-        <div class="d-grid">
-          <button class="btn btn-primary" type="submit" id="submitBtn">立即登录</button>
+
+        <div class="d-flex gap-2 mb-3">
+          <button class="btn btn-primary flex-fill" type="submit" id="submitBtn">立即登录</button>
         </div>
       </form>
-      <hr class="my-4">
-      <p class="text-center text-body-secondary mb-0">
+
+      <p class="login-panel__switch mb-0">
         <span id="toggleText">没有账号？</span>
         <a href="#" id="toggleLink">注册</a>
       </p>
+
+      <footer class="login-panel__footer">
+        <div>NekoSeek</div>
+        <div>© 2026 NekoSeek. All right reserved.</div>
+      </footer>
     </div>
-  </div>
+  </aside>
 
   <script src="/static/vendor/bootstrap-5.3.3/bootstrap.bundle.min.js"></script>
   <script type="module" src="/static/js/login.js"></script>

@@ -1,8 +1,8 @@
-# NekoSeek
+# NekoSeek —— 猫猫求索
 
 DSH webui 的**透明反向代理网关**：在 DSH 前端之前叠加一层认证、配额计量与管理后台，对上游页面/接口/WebSocket 全量透传，同时注入一个右下角的用户信息面板。
 
-仓库：<https://github.com/llz121517/nekoseek>
+本项目使用 LLM Agent 辅助编写。
 
 ## 功能特性
 
@@ -107,4 +107,4 @@ pytest                                 # 运行全部测试
 
 ## 许可证
 
-[MIT](LICENSE) © llz121517
+[MIT](LICENSE)

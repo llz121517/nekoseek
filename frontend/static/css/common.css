@@ -3,7 +3,7 @@
 /* 登录页背景与暗色遮罩 */
 .login-bg {
   min-height: 100vh;
-  background-image: url('/static/img/background.jpg');
+  background-image: url('/static/img/background.webp');
   background-size: cover;
   background-position: center;
 }
