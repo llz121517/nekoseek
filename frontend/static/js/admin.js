@@ -36,11 +36,12 @@ async function loadOverview() {
     $('#currentUser').textContent = `当前用户：${esc(chk.data.username)}`;
   }
 
-  const [users, dsh, balance, statsRes] = await Promise.all([
+  const [users, dsh, balance, statsRes, dsKey] = await Promise.all([
     api('/api/v1/admin/users'),
     api('/api/v1/admin/dsh/status'),
     api('/api/v1/admin/deepseek/balance'),
     api('/api/v1/admin/stats/overview'),
+    api('/api/v1/admin/deepseek/apikey'),
   ]);
 
   const list = users.data || [];
@@ -125,7 +126,42 @@ async function loadOverview() {
     statusEl.className = 'badge text-bg-secondary';
     statusEl.textContent = '已停止';
   }
+
+  const keyEl = $('#dsKeyCurrent');
+  if (dsKey.data && dsKey.data.configured) {
+    keyEl.textContent = dsKey.data.masked;
+  } else {
+    keyEl.textContent = '未配置';
+  }
 }
+
+$('#dsKeySave').addEventListener('click', async () => {
+  const input = $('#dsKeyInput');
+  const key = input.value.trim();
+  if (!key) {
+    showMsg($('#dsKeyMsg'), { code: 0, msg: '请输入 API Key' });
+    return;
+  }
+  const btn = $('#dsKeySave');
+  btn.disabled = true;
+  const r = await api('/api/v1/admin/deepseek/apikey', {
+    method: 'PUT',
+    body: JSON.stringify({ api_key: key }),
+  });
+  btn.disabled = false;
+  showMsg($('#dsKeyMsg'), r);
+  if (r.code === 1) {
+    input.value = '';
+    loadOverview();
+  }
+});
+
+$('#dsKeyToggle').addEventListener('click', () => {
+  const input = $('#dsKeyInput');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  $('#dsKeyToggle').textContent = show ? '隐藏' : '显示';
+});
 
 $('#dshStart').addEventListener('click', async () => {
   const r = await api('/api/v1/admin/dsh/start', { method: 'POST' });

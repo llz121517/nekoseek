@@ -3,15 +3,22 @@
 管理后台接口：用户 / 权限组 / 邀请码 / DSH 进程（均需 admin）
 """
 from typing import Optional
+import logging
+import os
 import time
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from app.config import ROOT
 from app.core.auth import admin_required, get_current_user
 from app.core import quota
 from app.core.db import db_op, stats_op
 from app.services import dsh_process, ds_balance
+
+logger = logging.getLogger("nekoseek.admin")
+
+ENV_PATH = ROOT / ".env"
 
 router = APIRouter(
     prefix="/api/v1/admin",
@@ -232,6 +239,85 @@ async def dsh_start():
 @router.post("/dsh/stop")
 async def dsh_stop():
     return {"code": 1, "msg": "ok", "data": dsh_process.stop()}
+
+
+# ---------- DeepSeek API Key ----------
+
+
+class DsKeyIn(BaseModel):
+    api_key: str = Field(..., min_length=1, max_length=256)
+
+
+def _mask_key(key: str) -> str:
+    """只露前 7 位（如 sk-xxxx）和末 4 位，其余打码，用于回显。"""
+    if len(key) <= 11:
+        return key[:2] + "****"
+    return f"{key[:7]}****{key[-4:]}"
+
+
+def _update_env_key(path, key_name: str, value: str) -> None:
+    """在 .env 中更新或追加一个 key=value，保留其它行与注释。"""
+    lines = []
+    if path.exists():
+        lines = path.read_text(encoding="utf-8").splitlines()
+    replaced = False
+    for i, ln in enumerate(lines):
+        stripped = ln.strip()
+        if stripped and not stripped.startswith("#") and stripped.split("=", 1)[0].strip() == key_name:
+            lines[i] = f"{key_name}={value}"
+            replaced = True
+            break
+    if not replaced:
+        lines.append(f"{key_name}={value}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+@router.get("/deepseek/apikey")
+async def get_deepseek_apikey():
+    """返回当前生效的 DS key（打码），供后台回显。"""
+    key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    return {
+        "code": 1,
+        "msg": "ok",
+        "data": {"configured": bool(key), "masked": _mask_key(key) if key else ""},
+    }
+
+
+@router.put("/deepseek/apikey")
+async def set_deepseek_apikey(payload: DsKeyIn):
+    """
+    更新 DeepSeek API Key：写入 .env + 当前进程环境，并热重启 DSH 使新 key 生效。
+    全程不回显完整明文。
+    """
+    key = payload.api_key.strip()
+    if not key:
+        return {"code": 0, "msg": "api_key 不能为空"}
+
+    # 1) 写入 .env（持久化）
+    try:
+        _update_env_key(ENV_PATH, "DEEPSEEK_API_KEY", key)
+    except Exception as e:
+        logger.warning("写入 .env 失败: %r", e)
+        return {"code": 0, "msg": f"写入 .env 失败：{e}"}
+
+    # 2) 更新当前进程环境（余额查询 / 下次拉起子进程都会用到）
+    os.environ["DEEPSEEK_API_KEY"] = key
+
+    # 3) 热重启 DSH 让新 key 生效（隔离失败不影响 key 已保存这一事实）
+    restart = {"attempted": False}
+    try:
+        dsh_process.stop()
+        restart = dsh_process.start() | {"attempted": True}
+    except dsh_process.DSHIsolationError as e:
+        restart = {"attempted": True, "running": False, "error": f"隔离不可用：{e}"}
+    except Exception as e:
+        restart = {"attempted": True, "running": False, "error": str(e)}
+
+    return {
+        "code": 1,
+        "msg": "已保存并尝试热重启 DSH" if restart.get("running") else "已保存（DSH 未运行或重启失败）",
+        "data": {"masked": _mask_key(key), "restart": restart},
+    }
 
 
 # ---------- 配额 ----------

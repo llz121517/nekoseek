@@ -67,6 +67,21 @@
           </div>
         </div>
       </div>
+
+      <div class="card mt-3">
+        <div class="card-body">
+          <h5 class="card-title">DeepSeek API Key</h5>
+          <p class="text-body-secondary small mb-2">
+            当前：<span id="dsKeyCurrent">查询中…</span>（保存后写入 .env 并自动热重启 DSH）
+          </p>
+          <div class="input-group">
+            <input type="password" class="form-control" id="dsKeyInput" placeholder="sk-..." autocomplete="off">
+            <button class="btn btn-outline-secondary" type="button" id="dsKeyToggle" title="显示/隐藏">显示</button>
+            <button class="btn btn-primary" type="button" id="dsKeySave">保存</button>
+          </div>
+          <div id="dsKeyMsg"></div>
+        </div>
+      </div>
     </section>
 
     <!-- 用户 -->
