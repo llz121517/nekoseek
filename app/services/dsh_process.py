@@ -5,6 +5,9 @@ DSH 进程托管（subprocess 启停，无 profile 管理）
 注意：DSH 启动时会读取「当前工作目录」下的 .env 文件，且会校验其中的
 DEEPSEEK_BASE_URL 等启动级变量只能来自启动 shell。因此必须给 DSH 一个
 独立的 cwd（不含本项目 .env 的目录），避免读到网关自己的配置而崩溃。
+
+DEEPSEEK_API_KEY 不再写入 DSH_HOME/.env，而是在拉起子进程时通过环境变量
+临时注入，仅存在于该子进程的生命周期内，不落盘。
 """
 import os
 import shlex
@@ -19,7 +22,48 @@ from app.config import DSH_COMMAND, DSH_UPSTREAM, DSH_HOME
 
 DSH_WORKDIR = Path(DSH_HOME)
 DSH_LOG_PATH = DSH_WORKDIR / "dsh.log"
+DSH_ENV_PATH = DSH_WORKDIR / ".env"
+DS_KEY_NAME = "DEEPSEEK_API_KEY"
 _process: subprocess.Popen | None = None
+
+
+def _build_child_env() -> dict[str, str]:
+    """
+    构建 DSH 子进程的环境变量。
+
+    - 继承当前进程环境。
+    - 临时注入 DEEPSEEK_API_KEY（来自网关自身环境/.env），让密钥只存在于
+      子进程生命周期内，不写入 DSH_HOME/.env。
+    - 顺带清除旧的 DSH_HOME/.env 中残留的 DEEPSEEK_API_KEY，避免历史上
+      sync_dsh_env 写入的明文 key 继续留盘。
+    """
+    env = dict(os.environ)
+
+    key = os.getenv(DS_KEY_NAME, "").strip()
+    if key:
+        env[DS_KEY_NAME] = key
+
+    # 清理旧的 .env 中残留的密钥行（幂等；文件不存在或无该行则不动）
+    try:
+        if DSH_ENV_PATH.exists():
+            lines = DSH_ENV_PATH.read_text(encoding="utf-8").splitlines()
+            kept = [
+                ln for ln in lines
+                if ln.strip() and not ln.strip().startswith(f"{DS_KEY_NAME}=")
+            ]
+            if len(kept) != len(lines):
+                if kept:
+                    DSH_ENV_PATH.write_text("\n".join(kept) + "\n", encoding="utf-8")
+                else:
+                    DSH_ENV_PATH.unlink()
+    except Exception:
+        # 清理失败不影响启动，仅记录
+        import logging
+        logging.getLogger("nekoseek.dsh_process").warning(
+            "清理 %s 中残留的 %s 失败", DSH_ENV_PATH, DS_KEY_NAME, exc_info=True
+        )
+
+    return env
 
 
 def _common_install_paths(exe_name: str) -> list[Path]:
@@ -115,6 +159,7 @@ def start() -> dict:
         _process = subprocess.Popen(
             cmd,
             cwd=str(DSH_WORKDIR),
+            env=_build_child_env(),
             stdout=log_file,
             stderr=subprocess.STDOUT,
         )

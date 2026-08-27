@@ -37,7 +37,6 @@ from app.core.auth import (
 from app.core.db.init_db import init_db
 from app.core.session import get_session_user_id, start_cleanup_worker
 from app.services import dsh_process
-from app.services.dsh_env import sync_dsh_env
 from app.services.proxy import proxy_webui, probe_upstream
 from app.services.ws_proxy import proxy_ws
 
@@ -51,7 +50,6 @@ STATIC_DIR = FRONTEND_DIR / "static"
 async def lifespan(app: FastAPI):
     init_db()
     start_cleanup_worker()
-    sync_dsh_env()
     if DSH_AUTOSTART:
         result = dsh_process.start()
         if not result.get("running"):
