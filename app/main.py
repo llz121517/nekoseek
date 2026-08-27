@@ -51,7 +51,12 @@ async def lifespan(app: FastAPI):
     init_db()
     start_cleanup_worker()
     if DSH_AUTOSTART:
-        result = dsh_process.start()
+        try:
+            result = dsh_process.start()
+        except dsh_process.DSHIsolationError as e:
+            # 无法以独立账户隔离 DSH：宁可不启动，也不在失去文件隔离的情况下运行。
+            logger.error("DSH 隔离不可用，网关中止启动：%s", e)
+            raise
         if not result.get("running"):
             logger.warning("DSH 自动拉起失败: %s", result)
     yield

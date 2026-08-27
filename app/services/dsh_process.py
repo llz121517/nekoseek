@@ -4,11 +4,14 @@ DSH 进程托管（subprocess 启停，无 profile 管理）
 
 平台分支（fork 点）：
 - Windows：维持现状 —— 以当前用户直接拉起，cwd 用 DSH_HOME（默认 ~/.dsh）。
-- Linux：以独立账户（DSH_RUN_AS_USER，默认 nekoseek-dsh）降权运行，通过
-  preexec_fn 在子进程 exec 前完成 setgid/initgroups/setuid，并把 HOME 指向
-  该账户家目录，让 DSH 的 ~/.dsh 落在专用账户下，从而与网关自身文件隔离，
-  防止 DSH 被操控后改写网关文件。需要 root 启动才能降权；非 root 时按当前
-  用户运行（隔离不生效，仅警告）。
+- Linux：网关应以普通账户（如 nekoseek）常驻运行，通过 `sudo -u <DSH_RUN_AS_USER>`
+  以独立账户拉起 DSH，使其 ~/.dsh 落在专用账户家目录下，与网关自身文件隔离，
+  防止 DSH 被操控后改写网关文件。需要为该账户配置 sudo 免密授权，例如 visudo：
+
+      nekoseek ALL=(nekoseek-dsh) NOPASSWD: /usr/local/bin/dsh web
+
+  无法以独立账户托管（账户不存在 / sudo 不可用或未授权）时直接抛 DSHIsolationError，
+  不静默回退到当前账户——宁可失败，也不在失去文件隔离的情况下运行。
 
 注意：DSH 启动时会读取「当前工作目录」下的 .env 文件，且会校验其中的
 DEEPSEEK_BASE_URL 等启动级变量只能来自启动 shell。因此必须给 DSH 一个
@@ -40,6 +43,10 @@ logger = logging.getLogger("nekoseek.dsh_process")
 
 IS_WINDOWS = os.name == "nt"
 
+
+class DSHIsolationError(RuntimeError):
+    """无法以独立账户托管 DSH（隔离不可用）时抛出，网关据此中止启动。"""
+
 DSH_WORKDIR = Path(DSH_HOME)
 # 日志固定放项目根目录，与 DSH 工作目录解耦：Linux 降权后网关（root）仍能读自己的日志。
 DSH_LOG_PATH = ROOT / "dsh.log"
@@ -50,12 +57,11 @@ _process: subprocess.Popen | None = None
 
 def _resolve_run_as() -> dict | None:
     """
-    Linux 下解析降权目标账户，返回 {"uid","gid","home","name"}；不需要降权时返回 None。
+    Linux 下解析降权目标账户，返回 {"uid","gid","home","name"}；Windows 返回 None。
 
-    - Windows：恒为 None（维持当前逻辑）。
-    - 未配置 DSH_RUN_AS_USER：None（按当前用户运行）。
-    - 已是 root：返回目标账户信息，供 preexec_fn 降权。
-    - 非 root：账户与当前一致则 None；否则降级为当前用户并告警。
+    运行模型：网关以普通账户常驻，经 `sudo -u <账户>` 把 DSH 拉起到独立账户。
+    除「当前进程已是目标账户」这一正常情形外，其余无法降权的情况一律抛
+    DSHIsolationError，不静默回退——隔离失效时宁可不启动。
     """
     if IS_WINDOWS or not DSH_RUN_AS_USER:
         return None
@@ -65,38 +71,43 @@ def _resolve_run_as() -> dict | None:
     try:
         pw = pwd.getpwnam(DSH_RUN_AS_USER)
     except KeyError:
-        logger.warning(
-            "DSH_RUN_AS_USER=%s 不存在，按当前用户运行 DSH（隔离不生效）。"
-            "可先 useradd -r -m %s 后重启。",
-            DSH_RUN_AS_USER, DSH_RUN_AS_USER,
+        raise DSHIsolationError(
+            f"DSH 独立账户 {DSH_RUN_AS_USER!r} 不存在。"
+            f"请先创建：sudo useradd -r -m {DSH_RUN_AS_USER}"
         )
-        return None
+
+    home = pw.pw_dir.rstrip("/") or "/"
+    info = {"uid": pw.pw_uid, "gid": pw.pw_gid, "home": home, "name": pw.pw_name}
 
     euid = os.geteuid()
     if euid == pw.pw_uid:
-        # 已经是目标账户，无需降权
-        return {"uid": pw.pw_uid, "gid": pw.pw_gid, "home": pw.pw_dir.rstrip("/") or "/", "name": pw.pw_name}
-    if euid != 0:
-        logger.warning(
-            "非 root 启动，无法降权到 %s，按当前用户(uid=%d)运行 DSH（隔离不生效）。",
-            DSH_RUN_AS_USER, euid,
+        # 当前进程已是目标账户，sudo -u 仍是安全的恒等切换，直接降权即可。
+        return info
+    # 其余（root / 其他普通账户）统一走 sudo -u 降权，由 _build_sudo_cmd 校验授权。
+    return info
+
+
+def _build_sudo_cmd(cmd: list[str], run_as: dict) -> list[str]:
+    """把 dsh 命令包装成 `sudo -u <账户> ...`，并先做非交互授权自检。"""
+    sudo = shutil.which("sudo")
+    if sudo is None:
+        raise DSHIsolationError(
+            "未找到 sudo，无法以独立账户托管 DSH。"
+            "请安装 sudo 并配置免密授权，例如 visudo 添加：\n"
+            f"    nekoseek ALL=(nekoseek-dsh) NOPASSWD: {DSH_COMMAND}"
         )
-        return None
-
-    # 去掉尾部斜杠，避免拼出 ".../.dsh" 时产生 "...//.dsh" 之类的路径
-    return {"uid": pw.pw_uid, "gid": pw.pw_gid, "home": pw.pw_dir.rstrip("/") or "/", "name": pw.pw_name}
-
-
-def _make_preexec(run_as: dict):
-    """生成 preexec_fn：在子进程 exec 前切换到目标账户（setgid/initgroups/setuid）。"""
-    def _demote():
-        os.setgid(run_as["gid"])
-        try:
-            os.initgroups(run_as["name"], run_as["gid"])
-        except OSError:
-            pass
-        os.setuid(run_as["uid"])
-    return _demote
+    # 非交互自检：sudo -n true 通过才说明 NOPASSWD 授权已配置。
+    probe = subprocess.run(
+        [sudo, "-n", "-u", run_as["name"], "true"],
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        raise DSHIsolationError(
+            f"sudo 免密降权到 {run_as['name']!r} 失败（{probe.stderr.decode(errors='replace').strip() or '未被授权'}）。\n"
+            "请用 visudo 为网关账户配置免密授权，例如：\n"
+            f"    nekoseek ALL=({run_as['name']}) NOPASSWD: {DSH_COMMAND}"
+        )
+    return [sudo, "-n", "-u", run_as["name"], "--", *cmd]
 
 
 def _build_child_env(run_as: dict | None) -> dict[str, str]:
@@ -239,23 +250,22 @@ def start() -> dict:
             "searched": [str(p) for p in _common_install_paths(shlex.split(DSH_COMMAND)[0])] if DSH_COMMAND else [],
         }
 
-    # —— 平台 fork 点：Linux 降权到独立账户，Windows 维持当前用户 ——
+    # —— 平台 fork 点：Linux 经 sudo 降权到独立账户，Windows 维持当前用户 ——
+    # 无法隔离时 _resolve_run_as / _build_sudo_cmd 直接抛 DSHIsolationError，
+    # 由调用方（main.lifespan）中止启动，不在失去隔离的情况下运行。
     run_as = _resolve_run_as()
 
-    # Linux 降权时，cwd 固定为目标账户的 ~/.dsh（与隔离 HOME 一致，不回退）；
-    # Windows / 未降权时用 DSH_WORKDIR（默认当前用户 ~/.dsh）。
     if run_as is not None:
+        cmd = _build_sudo_cmd(cmd, run_as)
         workdir = Path(run_as["home"]) / ".dsh"
-        preexec = _make_preexec(run_as)
     else:
         workdir = DSH_WORKDIR
-        preexec = None
 
     try:
-        # 目录由当前（可能是 root）进程创建，随后把属主交给目标账户，
+        # 目录由当前进程创建；降权时需把属主交给目标账户，
         # 否则降权后的 DSH 无权写入该目录。
         workdir.mkdir(parents=True, exist_ok=True)
-        if run_as is not None:
+        if run_as is not None and os.geteuid() == 0:
             try:
                 os.chown(workdir, run_as["uid"], run_as["gid"])
             except OSError:
@@ -268,7 +278,6 @@ def start() -> dict:
             env=_build_child_env(run_as),
             stdout=log_file,
             stderr=subprocess.STDOUT,
-            preexec_fn=preexec,  # Windows 上为 None，忽略
         )
     except FileNotFoundError:
         return {"running": False, "error": f"command not found: {DSH_COMMAND}", "cmd": cmd}

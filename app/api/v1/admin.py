@@ -223,7 +223,10 @@ async def dsh_status():
 
 @router.post("/dsh/start")
 async def dsh_start():
-    return {"code": 1, "msg": "ok", "data": dsh_process.start()}
+    try:
+        return {"code": 1, "msg": "ok", "data": dsh_process.start()}
+    except dsh_process.DSHIsolationError as e:
+        return {"code": 0, "msg": f"DSH 隔离不可用：{e}", "data": None}
 
 
 @router.post("/dsh/stop")

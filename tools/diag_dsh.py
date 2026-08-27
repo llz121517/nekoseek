@@ -36,7 +36,11 @@ def main():
         return 1
 
     print("\n尝试启动 DSH...")
-    result = dsh_process.start()
+    try:
+        result = dsh_process.start()
+    except dsh_process.DSHIsolationError as e:
+        print(f"隔离不可用，无法启动：\n{e}")
+        return 1
     print(f"start() 返回: {result}")
 
     if not result.get("running"):
@@ -47,7 +51,7 @@ def main():
         print("-" * 60)
         print("\n常见原因：")
         print("1. dsh 不在 PATH 里 → 配置 DSH_COMMAND=绝对路径\\dsh.exe web")
-        print("2. dsh web 启动需要环境变量 → 在启动本诊断脚本的 shell 里 export 它们")
+        print("2. Linux 下需配置 sudo 免密降权，例如 visudo：nekoseek ALL=(nekoseek-dsh) NOPASSWD: ... dsh web")
         print("3. 端口 3080 被占用 → 先杀掉占用进程，或改 DSH_UPSTREAM")
         return 1
 
