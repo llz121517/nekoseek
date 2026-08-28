@@ -2,6 +2,9 @@
 
 .login-bg {
   min-height: 100vh;
+  /* flow-root 建立新块格式化上下文，切断子卡片 margin-top 的折叠，
+     否则卡片顶部 margin 会穿过 body 折叠到视口顶，表现为卡片贴顶 */
+  display: flow-root;
   /* 背景壁纸沿用 common.css 中的 /static/img/background.webp */
 }
 
@@ -13,8 +16,9 @@
 /* 左侧登录卡片：离上/下/左三边留距，带圆角，毛玻璃 */
 .login-panel {
   width: min(420px, calc(100vw - 2.5rem));
-  margin: 1.25rem 0 1.25rem clamp(1.25rem, 4.5vw, 4rem);
-  height: calc(100vh - 2.5rem);
+  /* 上下边距 30px（较此前 +10px），左右自适应；height 同步扣除 2×30px 保持垂直居中 */
+  margin: 1.875rem 0 1.875rem clamp(1.25rem, 4.5vw, 4rem);
+  height: calc(100vh - 3.75rem);
   display: flex;
   border-radius: 1.25rem;
   overflow: hidden;
