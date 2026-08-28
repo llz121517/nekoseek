@@ -24,15 +24,30 @@ def _frame(usage=None, content=None):
 
 class TestExtractAssistantMessage:
     def test_real_usage_camel_case(self):
+        # 返回 (input, output)；input = inputTokens + cacheReadTokens
         frame = _frame(usage={"inputTokens": 120, "outputTokens": 34})
         assert _extract_assistant_message(frame) == (120, 34)
 
-    def test_real_usage_snake_case(self):
-        frame = _frame(usage={"prompt_tokens": 10, "completion_tokens": 5})
-        assert _extract_assistant_message(frame) == (10, 5)
+    def test_input_includes_cache_read_tokens(self):
+        # input 口径含缓存读取的上下文：109 + 8064 = 8173
+        frame = _frame(usage={
+            "inputTokens": 109,
+            "outputTokens": 123,
+            "cacheReadTokens": 8064,
+            "reasoningTokens": 40,
+        })
+        assert _extract_assistant_message(frame) == (8173, 123)
+
+    def test_input_cache_read_snake_case(self):
+        frame = _frame(usage={
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "cache_read_input_tokens": 90,
+        })
+        assert _extract_assistant_message(frame) == (100, 5)
 
     def test_missing_usage_falls_back_to_text_estimate(self):
-        # 无 usage：对 message.content 文本估算输出（prompt 计 0）
+        # 无 usage：对 message.content 文本估算输出（input 计 0）
         frame = _frame(usage=None, content=[{"type": "text", "text": "你好"}])
         assert _extract_assistant_message(frame) == (0, 2)
 

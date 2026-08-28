@@ -5,13 +5,16 @@ WebSocket 隧道：任意 Upgrade 路径透明转发到 DSH 上游。
 虽然是 catch-all，但 DSH 的事件流通常是服务器 → 浏览器单向下行；
 这里使用双向泵，浏览器上行也会原样转发，保持真正的"透明反代"语义。
 
-配额计量（仅输出）：DSH 的 mux 下行帧线格式为
+配额计量：DSH 的 mux 下行帧线格式为
 {"type":"server-request","rpcId":...,"method":"session/event","payload":{...session/event...}}；
-payload.event.type=assistant/message 时，event.data.usage 携带
-{inputTokens, outputTokens}。其中 inputTokens 是累计式完整 prompt 输入，
-已由 HTTP 侧（proxy.py 的 _account_prompt_input）估算记账，故本侧只取
-outputTokens 记输出，避免输入双计。usage 缺失时退化为对 message.content
-文本粗略分词估算输出。
+payload.event.type=assistant/message 时，event.data.usage 携带真实
+{inputTokens, outputTokens, cacheReadTokens, reasoningTokens}。一轮回复只发
+一条该帧（assistant/chunk 流式分片不带 usage），逐帧直接记账。
+
+输入口径 = inputTokens + cacheReadTokens：含本轮新增 prompt 与以缓存命中
+的 system prompt / 历史上下文 / 工具结果，是模型实际处理的完整输入。
+这是输入计量的唯一准确来源（HTTP 侧请求体估算已废弃）。usage 缺失时
+退化为对 message.content 文本粗略分词估算输出（input 计 0）。
 """
 import asyncio
 import json
@@ -37,13 +40,23 @@ def _upstream_ws_url(path: str) -> str:
 
 def _extract_assistant_message(frame_text: str) -> tuple[int, int] | None:
     """
-    从 mux 下行文本帧提取 assistant/message 的 (prompt_tokens, completion_tokens)。
+    从 mux 下行文本帧提取 assistant/message 的 (input_tokens, output_tokens)。
 
     DSH 实际线格式（见 dsh-client-connection/lib/index.js 的 serverRequest/send）：
         {"type":"server-request", "rpcId":"...", "method":"session/event",
          "payload": {"type":"session/event", "sessionId":"...", "event":{...}}}
-    event.type == "assistant/message" 时，event.data.usage 为真实
-    {prompt_tokens, completion_tokens}；缺失则对 message.content 文本估算。
+    event.type == "assistant/message" 时，event.data.usage 为真实 TokenUsage：
+        {inputTokens, outputTokens, cacheReadTokens, reasoningTokens, ...}
+    实测（DSH webui）：一轮回复只发一条 assistant/message 完整帧，且是唯一带
+    usage 的事件（assistant/chunk 流式分片不带 usage），故逐帧直接记账即可，
+    无需跨帧增量去重。
+
+    input_tokens 口径 = inputTokens + cacheReadTokens：inputTokens 是本轮新增的
+    非缓存输入（用户当条 prompt），cacheReadTokens 是以缓存读取形式命中的
+    system prompt / 历史上下文 / 工具结果——两者相加才是模型本轮实际处理的
+    完整输入。只取 inputTokens 会漏掉上下文大头（这正是旧版 input 偏小的根因）。
+
+    usage 缺失则对 message.content 文本估算输出（input 计 0）。
     无法识别时返回 None。
     """
     try:
@@ -63,9 +76,12 @@ def _extract_assistant_message(frame_text: str) -> tuple[int, int] | None:
     data = event.get("data") or {}
     usage = data.get("usage")
     if isinstance(usage, dict):
-        # DSH TokenUsage 字段是 camelCase：inputTokens/outputTokens
+        # DSH TokenUsage 字段是 camelCase：inputTokens/outputTokens/cacheReadTokens
         # （见 dsh-llm/lib/types/types.d.ts 的 TokenUsage 接口）
-        in_tok = usage.get("inputTokens") or usage.get("prompt_tokens") or 0
+        in_tok = (
+            (usage.get("inputTokens") or usage.get("prompt_tokens") or 0)
+            + (usage.get("cacheReadTokens") or usage.get("cache_read_input_tokens") or 0)
+        )
         out_tok = usage.get("outputTokens") or usage.get("completion_tokens") or 0
         return int(in_tok), int(out_tok)
     # 无 usage：对 assistant 消息文本估算输出
@@ -157,14 +173,13 @@ async def _pump(upstream, downstream: WebSocket, cookie_header: str = "") -> Non
                 if user is not None:
                     usage = _extract_assistant_message(text)
                     if usage is not None:
-                        # 只记输出：usage 里的 inputTokens 是累计式完整 prompt 输入，
-                        # 而 HTTP 侧 _account_prompt_input 已对 prompt 做过输入估算记账，
-                        # 这里再记 prompt_tok 会双计。WS 侧仅补充真实 completion 输出。
-                        _prompt_tok, completion_tok = usage
-                        if completion_tok > 0:
+                        # input/output 都来自真实 usage，逐帧记账（一轮一条）。
+                        input_tok, output_tok = usage
+                        if input_tok > 0 or output_tok > 0:
                             quota.record_usage(
                                 user["id"],
-                                output_tokens=completion_tok,
+                                input_tokens=input_tok,
+                                output_tokens=output_tok,
                             )
 
     async def downstream_to_upstream():

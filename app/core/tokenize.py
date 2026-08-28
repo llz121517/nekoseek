@@ -22,17 +22,3 @@ def estimate_tokens(text: str) -> int:
     cjk_count = len(_CJK_RE.findall(text))
     latin_words = _LATIN_WORD_RE.findall(text)
     return int(round(cjk_count * QUOTA_CJK_PER_CHAR + len(latin_words) * QUOTA_LATIN_PER_WORD))
-
-
-def estimate_prompt_parts(parts: list) -> int:
-    """
-    从 DSH PromptContentPart 列表估算输入 token：
-    [{type:'text', text}, {type:'image', data}] —— image 部分不计。
-    """
-    total = 0
-    for part in parts or []:
-        if isinstance(part, dict) and part.get("type") == "text":
-            text = part.get("text")
-            if isinstance(text, str):
-                total += estimate_tokens(text)
-    return total

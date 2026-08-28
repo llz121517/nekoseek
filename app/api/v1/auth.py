@@ -2,9 +2,9 @@
 """
 认证接口：注册（仅邀请制）、登录、登出、状态检查
 """
+import asyncio
 import logging
 import secrets
-import time
 from hashlib import pbkdf2_hmac
 
 from fastapi import APIRouter, Request, Response
@@ -76,18 +76,19 @@ async def login(request: Request, response: Response, payload: LoginIn):
     else:
         pwd_hash, salt = user["pwd_hash"], user["salt"]
 
-    valid = verify_password(payload.password, pwd_hash, salt)
+    # PBKDF2（20 万次迭代）是 CPU 密集同步调用，挪到线程池执行，避免阻塞事件循环。
+    valid = await asyncio.to_thread(verify_password, payload.password, pwd_hash, salt)
 
     # 统一失败：不区分用户不存在、密码错误、账号停用
     if user is None or not valid or not user.get("status"):
-        # 随机 50-149ms 延迟，增加统计时间分析难度
-        time.sleep(0.05 + secrets.randbelow(100) / 1000)
+        # 随机 50-149ms 延迟，增加统计时间分析难度；用 asyncio.sleep 避免阻塞事件循环
+        await asyncio.sleep(0.05 + secrets.randbelow(100) / 1000)
         return {"code": 0, "msg": "用户名或密码错误"}
 
     sid = create_session(user["id"])
     if sid is None:
         logger.error("为用户 %s 创建 session 失败", username)
-        time.sleep(0.05 + secrets.randbelow(100) / 1000)
+        await asyncio.sleep(0.05 + secrets.randbelow(100) / 1000)
         return {"code": 0, "msg": "用户名或密码错误"}
 
     response.set_cookie(

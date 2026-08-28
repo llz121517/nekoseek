@@ -1,6 +1,4 @@
-"""HTTP 反代的单元测试：mock 上游 httpx，验证请求转发、头重写、面板注入与输入计量。"""
-import json
-
+"""HTTP 反代的单元测试：mock 上游 httpx，验证请求转发、头重写与面板注入。"""
 import pytest
 import httpx
 
@@ -119,24 +117,6 @@ async def test_upstream_unreachable_returns_502(monkeypatch):
     monkeypatch.setattr(proxy._client, "send", fake_send)
     resp = await proxy.proxy_webui(_make_request(), "")
     assert resp.status_code == 502
-
-
-@pytest.mark.asyncio
-async def test_prompt_request_accounts_input_tokens(monkeypatch, isolated_db, make_user):
-    recorded = {}
-    from app.core import quota
-    monkeypatch.setattr(quota, "record_usage", lambda uid, input_tokens=0, output_tokens=0: recorded.update(uid=uid, input=input_tokens))
-
-    async def fake_send(req, stream=True):
-        return FakeUpstreamResponse(b"{}", content_type="application/json")
-
-    monkeypatch.setattr(proxy._client, "send", fake_send)
-    user = make_user()
-    body = json.dumps({"content": [{"type": "text", "text": "你好"}]}).encode()
-    req = _make_request(method="POST", path="/api/session.prompt", body=body)
-    await proxy.proxy_webui(req, "api/session.prompt", user)
-    assert recorded.get("uid") == user["id"]
-    assert recorded.get("input") == 2  # “你好”
 
 
 @pytest.mark.asyncio
