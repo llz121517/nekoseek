@@ -121,12 +121,36 @@ def _grant_permissions(run_as: dict, workdir: Path | None) -> None:
     - .env 中 DSH_PATCH 配置的 patch 文件（dsh 需读取）；
     - 工作目录（仅当显式配置了 DSH_HOME 才创建并授权；未配置则不创建，
       由 dsh 在降权后基于目标账户 HOME 自建 ~/.dsh）。
+
+    关键：必须确保 workdir 的父目录链允许 dsh 账户进入（如 /opt/dsh-data 的 /opt）。
+    仅 chown workdir 本身不够，dsh 还需有父目录的执行权限才能 cd 进去。
     """
     if DSH_PATCH is not None:
         _chown(DSH_PATCH, run_as)
     if workdir is not None:
         workdir.mkdir(parents=True, exist_ok=True)
         _chown(workdir, run_as)
+        # 确保父目录链可进入：给所有父目录添加 others x 权限（如 /opt）
+        _ensure_parent_access(workdir, run_as)
+
+
+def _ensure_parent_access(path: Path, run_as: dict) -> None:
+    """
+    确保 path 的每一级父目录都允许 run_as 账户进入（至少 x 权限）。
+    如 /opt/dsh-data 需确保 /opt 和 / 对 dsh 可进入。
+    简单方案：给所有父目录添加 o+x（others execute）权限。
+    """
+    current = path.resolve().parent  # 从父目录开始
+    while current != current.parent and current != Path("/"):  # 直到根目录
+        try:
+            # 检查是否已有 others x 权限，没有则添加
+            mode = current.stat().st_mode
+            if not (mode & 0o001):  # 没有 others x
+                logger.info("父目录 %s 缺少 others x 权限，添加中...", current)
+                current.chmod(mode | 0o001)
+        except OSError:
+            logger.warning("修改父目录 %s 权限失败", current, exc_info=True)
+        current = current.parent
 
 
 def _drop_privileges(run_as: dict):
