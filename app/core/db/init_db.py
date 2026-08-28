@@ -146,9 +146,9 @@ def _init_data_db() -> None:
     # 仅当无用户时，从 .env 播种初始管理员
     cur = conn.execute("SELECT COUNT(*) FROM users")
     if cur.fetchone()[0] == 0:
-        if not ADMIN_PASSWORD:
+        if not ADMIN_PASSWORD.strip():
             raise ValueError(
-                "ADMIN_PASSWORD is empty! Please set it in .env for first-time bootstrap."
+                "首次启动需设置 ADMIN_PASSWORD（.env），用于播种初始管理员；账户创建后可移除。"
             )
         admin_group = conn.execute(
             "SELECT id FROM groups WHERE name = 'admin'"
