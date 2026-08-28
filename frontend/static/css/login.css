@@ -1,10 +1,13 @@
 /* NekoSeek 登录页定制样式（仿 Natayark 账户中心：左侧毛玻璃登录卡片 + 右侧壁纸留白） */
 
+/* 布局模型：body 作为 flex 容器负责卡片的垂直居中 + 左侧留白与上下留白，
+   卡片本身不再写死 height（避免「写死高度 + margin 数学」的脆弱配合），
+   也无需 flow-root 之类的折叠补丁——flex 容器中子项 margin 不折叠。 */
 .login-bg {
   min-height: 100vh;
-  /* flow-root 建立新块格式化上下文，切断子卡片 margin-top 的折叠，
-     否则卡片顶部 margin 会穿过 body 折叠到视口顶，表现为卡片贴顶 */
-  display: flow-root;
+  display: flex;
+  align-items: center;              /* 垂直居中：上下留白对称 */
+  padding-block: 1.875rem;          /* 上下最小留白 30px，矮屏时卡片不贴边 */
   /* 背景壁纸沿用 common.css 中的 /static/img/background.webp */
 }
 
@@ -13,12 +16,12 @@
   content: none;
 }
 
-/* 左侧登录卡片：离上/下/左三边留距，带圆角，毛玻璃 */
+/* 左侧登录卡片：左侧留白随宽度自适应，高度由内容决定、最大不超过视口留白 */
 .login-panel {
   width: min(420px, calc(100vw - 2.5rem));
-  /* 上下边距 30px（较此前 +10px），左右自适应；height 同步扣除 2×30px 保持垂直居中 */
-  margin: 1.875rem 0 1.875rem clamp(1.25rem, 4.5vw, 4rem);
-  height: calc(100vh - 3.75rem);
+  margin-left: clamp(1.25rem, 4.5vw, 4rem);
+  /* 高度拉满到视口减上下留白，保持「通顶卡片」观感；矮屏由 padding-block 兜底 */
+  min-height: calc(100vh - 3.75rem);
   display: flex;
   border-radius: 1.25rem;
   overflow: hidden;
@@ -164,11 +167,15 @@
   background-color: var(--nk-input-focus-bg);
 }
 
-/* 窄屏：卡片留距收窄 */
+/* 窄屏：卡片留距收窄，改为整体居中（不再左侧偏置） */
 @media (max-width: 480px) {
+  .login-bg {
+    justify-content: center;   /* 窄屏下卡片水平居中，右侧不再留白 */
+    padding-block: 0.75rem;
+  }
   .login-panel {
     width: calc(100vw - 1.5rem);
-    height: calc(100vh - 1.5rem);
-    margin: 0.75rem;
+    min-height: calc(100vh - 1.5rem);
+    margin-left: 0;
   }
 }

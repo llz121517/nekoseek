@@ -163,16 +163,24 @@ $('#dsKeyToggle').addEventListener('click', () => {
   $('#dsKeyToggle').textContent = show ? '隐藏' : '显示';
 });
 
-$('#dshStart').addEventListener('click', async () => {
-  const r = await api('/api/v1/admin/dsh/start', { method: 'POST' });
-  showMsg(r);
-  loadOverview();
-});
-$('#dshStop').addEventListener('click', async () => {
-  const r = await api('/api/v1/admin/dsh/stop', { method: 'POST' });
-  showMsg(r);
-  loadOverview();
-});
+// DSH 启停：点击即给反馈（禁用按钮 + 状态徽标转「操作中…」），完成后刷新概览。
+async function dshAction(btn, action, busyText) {
+  const statusEl = $('#dshStatus');
+  btn.disabled = true;
+  statusEl.className = 'badge text-bg-warning';
+  statusEl.textContent = busyText;
+  try {
+    const r = await api(`/api/v1/admin/dsh/${action}`, { method: 'POST' });
+    showMsg('dshMsg', r);
+  } finally {
+    btn.disabled = false;
+    // 无论成败都重取真实状态，避免与后端不一致
+    await loadOverview();
+  }
+}
+
+$('#dshStart').addEventListener('click', (e) => dshAction(e.currentTarget, 'start', '启动中…'));
+$('#dshStop').addEventListener('click', (e) => dshAction(e.currentTarget, 'stop', '停止中…'));
 
 // ---- 用户 ----
 let allUsers = [];
