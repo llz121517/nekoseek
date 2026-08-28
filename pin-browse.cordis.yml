@@ -1,0 +1,19 @@
+# 固定工作区目录选择为 WebUI 内嵌浏览（in-app browse）：
+# 宿主进程不再弹 Win32 原生文件夹对话框，WebUI 直接显示自己的目录选择框。
+#
+# 用法（每次启动带上）:
+#   dsh web --patch ./pin-browse.cordis.yml
+#
+# 长期固定（不需要每次传参）:
+#   把本文件内容合并进 %USERPROFILE%\.dsh\profiles\web\cordis.patch.yml
+#
+# 原理: web 配置里默认是 -auto 行，它按环境自动选 native|browse；
+# 本机 win32 + 127.0.0.1 绑定时恒选 native（弹宿主机原生对话框）。
+# 这里禁掉 auto 行，直接挂 browse 后端 + 对应浏览器端选择器。
+- id: directory-picker
+  disabled: true
+- insert:
+    - id: directory-picker-browse
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+    - id: directory-picker-browse-surface
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'

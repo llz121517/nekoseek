@@ -34,10 +34,17 @@ DESCRIPTION = "DSH 透明反向代理"
 DSH_UPSTREAM = os.getenv("DSH_UPSTREAM", "http://127.0.0.1:3080")
 # 托管 dsh 进程时的完整启动命令（含参数，如 "dsh web"）
 DSH_COMMAND = os.getenv("DSH_COMMAND", "dsh web")
+# cordis patch 文件：相对路径按项目根目录（ROOT）解析，与 DSH 工作目录解耦；
+# 留空则不向 dsh 追加 --patch 参数。
+_DSH_PATCH_RAW = os.getenv("DSH_PATCH", "").strip()
+DSH_PATCH: Path | None = None
+if _DSH_PATCH_RAW:
+    _p = Path(os.path.expanduser(_DSH_PATCH_RAW))
+    DSH_PATCH = (_p if _p.is_absolute() else (ROOT / _p)).resolve()
 # 网关启动时是否自动拉起 DSH（"1" 开）
 DSH_AUTOSTART = os.getenv("DSH_AUTOSTART", "0") == "1"
 # DSH 的工作目录：留空则由 dsh 基于运行账户的 HOME 自建 ~/.dsh（推荐，默认）；
-# 显式配置时则作为强制指定，透传给 dsh 子进程。
+# 显式配置时则创建并授权给降权账户，作为强制指定透传给 dsh 子进程。
 # Linux 下若以独立账户降权运行（见 DSH_RUN_AS_USER）且未配置此项，实际生效的是
 # 该账户家目录下的 ~/.dsh（由其 HOME 决定），此处仅作日志/诊断展示。
 _DSH_HOME_RAW = os.getenv("DSH_HOME", "")
@@ -48,7 +55,8 @@ else:
 # 是否显式指定了 DSH_HOME（决定子进程是否透传；留空则不传，由 dsh 自建）
 DSH_HOME_EXPLICIT = bool(_DSH_HOME_RAW.strip())
 # Linux 下用于运行 DSH 的独立账户名（隔离网关文件，防止 DSH 被操控改写自身）。
-# 仅在以 root 启动时降权生效；非 root 或留空则按当前用户运行。Windows 忽略此项。
+# 网关必须以 root 启动：不存在该账户时自动创建（useradd -r -m），随后通过
+# setuid/setgid 把 DSH 子进程降权到该账户。非 root 启动则拒绝托管 DSH。Windows 忽略此项。
 DSH_RUN_AS_USER = os.getenv("DSH_RUN_AS_USER", "nekoseek-dsh").strip()
 
 # ====== 认证 / 账户 ======
@@ -90,6 +98,8 @@ if _parsed.path not in ("", "/"):
     raise RuntimeError(f"DSH_UPSTREAM 不允许带路径前缀: {DSH_UPSTREAM}")
 if DSH_AUTOSTART and not DSH_COMMAND.strip():
     raise RuntimeError("DSH_AUTOSTART=1 时 DSH_COMMAND 不能为空")
+if DSH_PATCH is not None and not DSH_PATCH.is_file():
+    raise RuntimeError(f"DSH_PATCH 不存在: {DSH_PATCH}")
 if not (0 < SERVER_PORT < 65536):
     raise RuntimeError(f"SERVER_PORT 非法: {SERVER_PORT}")
 

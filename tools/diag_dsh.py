@@ -51,7 +51,7 @@ def main():
         print("-" * 60)
         print("\n常见原因：")
         print("1. dsh 不在 PATH 里 → 配置 DSH_COMMAND=绝对路径\\dsh.exe web")
-        print("2. Linux 下需配置 sudo 免密降权，例如 visudo：nekoseek ALL=(nekoseek-dsh) NOPASSWD: ... dsh web")
+        print("2. Linux 下需以 root 启动网关（用于创建并降权到 DSH_RUN_AS_USER 独立账户）")
         print("3. 端口 3080 被占用 → 先杀掉占用进程，或改 DSH_UPSTREAM")
         return 1
 
