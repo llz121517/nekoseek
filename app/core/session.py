@@ -1,6 +1,7 @@
 # app/core/session.py
 """
-服务端 Session 管理（存 SQLite cache.db，cookie 承载 sid）
+服务端 Session 管理：会话行存 SQLite cache.db，cookie 只承载 sid。
+会话有独立过期时间，后台线程定期清理；创建新会话会踢掉同用户旧会话。
 """
 import threading
 import time

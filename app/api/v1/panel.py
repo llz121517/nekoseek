@@ -1,6 +1,6 @@
 # app/api/v1/panel.py
 """
-用户信息面板接口：向注入 EBUI 页面的右下角逐板提供当前用户数据。
+用户信息面板接口：向注入 DSH webui 页面的右下角逐板提供当前用户数据。
 """
 from fastapi import APIRouter, Depends
 

@@ -164,25 +164,27 @@ async def proxy_webui(request: Request, path: str, user: dict | None = None) -> 
             content={"code": 0, "msg": f"DSH upstream unavailable: {e}"},
         )
 
+    inject_html = None
     if _should_inject(request, upstream.headers.get("content-type", "")):
         try:
-            text = (await upstream.aread()).decode(
-                upstream.charset_encoding or "utf-8", errors="replace"
+            inject_html = inject_panel_tags(
+                (await upstream.aread()).decode(
+                    upstream.charset_encoding or "utf-8", errors="replace"
+                )
             )
         finally:
             await upstream.aclose()
-        text = inject_panel_tags(text)
-        resp_headers = _response_headers(upstream)
-        _rewrite_location(resp_headers, request)
+
+    # 注入路径（HTML 缓冲改写）与流式路径共用的响应头处理
+    resp_headers = _response_headers(upstream)
+    _rewrite_location(resp_headers, request)
+    if inject_html is not None:
         return Response(
-            content=text,
+            content=inject_html,
             status_code=upstream.status_code,
             media_type="text/html",
             headers=resp_headers,
         )
-
-    resp_headers = _response_headers(upstream)
-    _rewrite_location(resp_headers, request)
     return StreamingResponse(
         _body_iterator(upstream),
         status_code=upstream.status_code,

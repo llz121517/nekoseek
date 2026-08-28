@@ -1,8 +1,9 @@
 # app/core/db/db.py
 """
-数据库连接管理（双库分离）
-- nekoseek.db：用户 / 权限组 / 邀请码
+数据库连接管理（三库分离，线程本地连接）
+- data.db：用户 / 权限组 / 邀请码 / 窗口化用量 / 设置（开外键）
 - cache.db：会话
+- stats.db：小时×用户用量明细
 """
 import sqlite3
 import threading
@@ -15,6 +16,7 @@ _stats_local = threading.local()
 
 
 def _open_conn(path: str, foreign_keys: bool = True) -> sqlite3.Connection:
+    # 用 pathlib 惰性建目录，避免模块导入期产生副作用
     path_obj = __import__("pathlib").Path(path)
     path_obj.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path_obj), check_same_thread=True, timeout=10.0)

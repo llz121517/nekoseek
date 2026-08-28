@@ -53,6 +53,7 @@ _POLYFILL_SNIPPET = """<script data-nekoseek-polyfill>
 
 PANEL_TAGS = (
     "<!-- nekoseek-panel -->\n"
+    # 外联资源的 ebui- 前缀是历史沿用名，对应 /static/css|js/ebui-panel.*，勿改。
     '<link rel="stylesheet" href="/static/css/ebui-panel.css">\n'
     '<script src="/static/js/ebui-panel.js" defer></script>\n'
 )

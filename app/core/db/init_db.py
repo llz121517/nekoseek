@@ -1,6 +1,6 @@
 # app/core/db/init_db.py
 """
-数据库初始化：双库建表 + 播种默认权限组与管理员
+数据库初始化：三库建表（data/cache/stats）+ 播种默认权限组与初始管理员
 """
 import sqlite3
 
@@ -174,7 +174,7 @@ def _init_stats_db() -> None:
 
 def init_db() -> None:
     """
-    初始化数据库：建文件夹 + 建表 + 播种默认组与管理员。
+    初始化数据库：建目录 + 三库建表 + 播种默认权限组与初始管理员。
     """
     DB_DIR.mkdir(parents=True, exist_ok=True)
     _init_data_db()

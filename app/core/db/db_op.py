@@ -3,6 +3,7 @@
 业务 CRUD 封装（直接操作 SQLite，无 ORM）
 """
 import time
+from datetime import datetime
 from typing import Any
 
 from app.core.db.db import get_data_conn
@@ -313,8 +314,6 @@ def consume_invite(code: str) -> dict | None:
         return None
     if inv.get("expires_at"):
         try:
-            from datetime import datetime
-
             expires = datetime.fromisoformat(inv["expires_at"])
             if expires.timestamp() < time.time():
                 return None

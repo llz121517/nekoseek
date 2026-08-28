@@ -1,6 +1,6 @@
 # app/config.py
 """
-NekoSeek 配置：透明反代 DSH webui 的 MVP 配置。
+NekoSeek 配置：透明反代 DSH webui 的全部运行配置。
 
 只在 .env / 环境变量中读取本项目需要的最小配置集，并在启动时做
 fail-fast 硬校验，避免带病运行。
@@ -32,7 +32,7 @@ DESCRIPTION = "DSH 透明反向代理"
 # ====== DSH 上游配置 ======
 # DSH webui 监听地址（网关所有请求的转发目标）
 DSH_UPSTREAM = os.getenv("DSH_UPSTREAM", "http://127.0.0.1:3080")
-# 托管 dsh 进程时的完整启动命令（含参数，如 "dsh web"）
+# 托管 dsh 进程时的完整启动命令（含参数，如 "dsh web --no-open"）
 DSH_COMMAND = os.getenv("DSH_COMMAND", "dsh web")
 # cordis patch 文件：相对路径按项目根目录（ROOT）解析，与 DSH 工作目录解耦；
 # 留空则不向 dsh 追加 --patch 参数。
@@ -73,7 +73,8 @@ SESSION_SAMESITE = "lax"
 SESSION_SECURE = os.getenv("SESSION_SECURE", "0") == "1"  # 仅 HTTPS 部署时启用
 
 # ====== 数据库路径 ======
-# 双库分离：data.db 存用户/权限组/邀请码，cache.db 存会话。
+# 三库分离：data.db 存业务数据（用户/权限组/邀请码/窗口化用量/设置），
+# cache.db 存会话，stats.db 存小时×用户用量明细（统计，永不被配额重置清空）。
 DB_DIR = ROOT / "data" / "db"
 DATA_DB_PATH = DB_DIR / "data.db"
 CACHE_DB_PATH = DB_DIR / "cache.db"

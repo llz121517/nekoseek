@@ -1,12 +1,14 @@
 # app/main.py
 """
-NekoSeek MVP：透明反代 DSH webui + 全部 API。
+NekoSeek：透明反代 DSH webui + 网关自身 API。
 
 路由顺序是关键：
 1. /healthz（先于 catch-all）
-2. WebSocket catch-all（先于 HTTP catch-all）
-3. 根路径 /
-4. HTTP catch-all
+2. 网关自身 API 路由（/api/v1/*）
+3. 页面路由（/login、/admin、/favicon.ico）
+4. WebSocket catch-all（先于 HTTP catch-all）
+5. 根路径 /
+6. HTTP catch-all（/api/v1/* 之外的请求才透传给 DSH）
 """
 import logging
 from contextlib import asynccontextmanager

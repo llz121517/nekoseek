@@ -68,8 +68,9 @@ async def login(request: Request, response: Response, payload: LoginIn):
     username = payload.username.strip()
     user = db_op.get_user_by_username(username)
 
-    # 总是执行一次 PBKDF2：用户不存在时使用从用户名派生的 dummy 凭据，
-    # 使"存在但密码错"与"不存在"两条路径的计算耗时尽量接近。
+    # 用户不存在时用由用户名派生的确定性 dummy 凭据跑同一次 PBKDF2，
+    # 使"存在但密码错"与"不存在"两条路径的计算耗时尽量接近，防止通过
+    # 时间侧信道枚举用户名。
     if user is None:
         pwd_hash, salt = _derive_dummy_credentials(username)
     else:
@@ -102,8 +103,8 @@ async def login(request: Request, response: Response, payload: LoginIn):
 
 def _derive_dummy_credentials(username: str) -> tuple[str, str]:
     """
-    为不存在的用户生成确定性 dummy 凭据，格式与真实凭据一致（64 hex hash + 32 hex salt），
-    保证 PBKDF2 输入长度固定，防止时间侧信道攻击
+    为不存在的用户生成确定性 dummy 凭据（64 hex hash + 32 hex salt，与真实凭据格式一致），
+    使 PBKDF2 输入长度固定，两条失败路径耗时不可区分。
     """
     digest = pbkdf2_hmac(
         "sha256",
@@ -112,7 +113,7 @@ def _derive_dummy_credentials(username: str) -> tuple[str, str]:
         PBKDF2_ITERATIONS,
     ).hex()
     # 64 hex chars for hash, 32 hex chars for salt
-    return digest[:64], digest[32:64]
+    return digest[:64], digest[32:]
 
 
 @router.post("/logout")
