@@ -41,6 +41,21 @@ _client = httpx.AsyncClient(base_url=DSH_UPSTREAM, timeout=_STREAM_TIMEOUT)
 # 与 dsh-host-apiproxy/lib/types/api/rpc-map.d.ts 的 session.prompt / subagent.prompt）。
 _PROMPT_PATH_SUFFIXES = ("/api/session.prompt", "/api/subagent.prompt")
 
+# 局域网/反代访问下 settings mirror 降级的修复（非侵入，仅改线上字节，不动磁盘）。
+# DSH 前端的 settings mirror 用 connection.isLoopback 选 host（持久化到服务端）/
+# memory（只读，恒 undefined）模式；isLoopback 仅看 location.hostname 是否 loopback。
+# 经局域网 IP（http://192.168.x.x）访问时误判为 false → memory 模式 → 模型设置报
+# "settings are unavailable in this browser"，内测声明等设置也无法持久化。
+# 此处把 dsh-client-connection 浏览器 bundle 里的 isLoopback 判定改写为额外认
+# window.__DSH_LOCAL_APP__（由 inject.py 的 polyfill 在 <head> 起始置位）。
+# 参考 deepseek-harness-fpk issue #2。
+_CONNECTION_BUNDLE_PATH = "/plugins/@deepseek-ai/dsh-client-connection/client.js"
+_ISLOOPBACK_ANCHOR = b"isLoopbackHostname(pageLocation.hostname)"
+_ISLOOPBACK_PATCHED = (
+    b"(isLoopbackHostname(pageLocation.hostname)"
+    b" || (typeof window !== 'undefined' && window.__DSH_LOCAL_APP__ === true))"
+)
+
 
 def _forward_headers(request: Request) -> dict:
     """提取请求头，剥离逐跳头与 host（由 httpx 重新设置）。"""
@@ -185,6 +200,25 @@ async def proxy_webui(request: Request, path: str, user: dict | None = None) -> 
             media_type="text/html",
             headers=resp_headers,
         )
+
+    # dsh-client-connection bundle：缓冲改写 isLoopback 判定（修局域网 settings 降级）。
+    # 仅该路径的 GET 200；缓冲约 354KB，一次性改写后整体回传，不走流式。
+    if _should_patch_loopback(request, url, upstream.status_code):
+        try:
+            patched = _patch_loopback_body(await upstream.aread())
+        finally:
+            await upstream.aclose()
+        # 缓冲改写后长度变化，剔除上游的 content-length，由 Starlette 重算。
+        resp_headers = {
+            k: v for k, v in resp_headers.items() if k.lower() != "content-length"
+        }
+        return Response(
+            content=patched,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type", "application/javascript"),
+            headers=resp_headers,
+        )
+
     return StreamingResponse(
         _body_iterator(upstream),
         status_code=upstream.status_code,
@@ -209,3 +243,34 @@ def _should_inject(request: Request, content_type: str) -> bool:
     if request.headers.get("x-requested-with") == "XMLHttpRequest":
         return False
     return "text/html" in request.headers.get("accept", "")
+
+
+def _should_patch_loopback(request: Request, url: str, status_code: int) -> bool:
+    """
+    是否对 dsh-client-connection 浏览器 bundle 做 isLoopback 改写。
+
+    仅匹配该 bundle 路径的 GET 200 响应；其余（SSE、其它 JS、非 200）一律流式透传。
+    """
+    return (
+        request.method == "GET"
+        and status_code == 200
+        and url.split("?", 1)[0] == _CONNECTION_BUNDLE_PATH
+    )
+
+
+def _patch_loopback_body(body: bytes) -> bytes:
+    """
+    把 bundle 内的 isLoopback 判定改写为额外认 window.__DSH_LOCAL_APP__。
+
+    锚点子串预期恰好出现一次：命中则替换；0 次（上游已改版/已自带修复）或多次
+    都原样返回并记告警——既不静默失效，也不误改。改写只影响线上字节，不碰磁盘文件。
+    """
+    count = body.count(_ISLOOPBACK_ANCHOR)
+    if count != 1:
+        logger.warning(
+            "dsh-client-connection bundle 的 isLoopback 锚点出现 %d 次（预期 1 次），"
+            "跳过改写；请检查上游版本是否已变更",
+            count,
+        )
+        return body
+    return body.replace(_ISLOOPBACK_ANCHOR, _ISLOOPBACK_PATCHED)

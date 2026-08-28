@@ -19,6 +19,13 @@ DSH 前端一调即抛 "crypto.randomUUID is not a function"，此处就地补�
 # 用 try/defineProperty 包住，避免 crypto 只读或字段不可写时抛错。
 _POLYFILL_SNIPPET = """<script data-nekoseek-polyfill>
 (function () {
+  // 标记本页为「本地应用」语境：DSH 的 settings mirror 据 connection.isLoopback
+  // 选 host（持久化到服务端）/ memory（只读，恒 undefined）模式。局域网 IP 访问时
+  // location.hostname 非 loopback，isLoopback 误判为 false，导致模型设置报
+  // "settings are unavailable in this browser"、内测声明等设置无法持久化。
+  // 网关侧在反代 dsh-client-connection bundle 时把 isLoopback 判定改写为额外认
+  // 这个标记（见 proxy.py），此处先置位。必须先于 DSH 的 defer/module 脚本执行。
+  try { window.__DSH_LOCAL_APP__ = true; } catch (e) {}
   try {
     var c = window.crypto = window.crypto || {};
     if (!c.getRandomValues) {

@@ -1,8 +1,8 @@
 # NekoSeek —— 猫猫求索
 
-DSH webui 的**透明反向代理网关**：在 DSH 前端之前叠加一层认证、配额计量与管理后台，对上游页面/接口/WebSocket 全量透传，同时注入一个右下角的用户信息面板。
+DSH webui 的**透明反向代理网关**：在 DSH 前端之前叠加一层认证、配额计量与管理后台，对上游页面 / 接口 / WebSocket 全量透传，同时注入一个右下角的用户信息面板。
 
-本项目使用 LLM Agent 辅助编写。
+- 本项目由 LLM 驱动的 Agent 辅助开发
 
 ## 功能特性
 
@@ -12,6 +12,35 @@ DSH webui 的**透明反向代理网关**：在 DSH 前端之前叠加一层认�
 - **用量统计**：独立 `stats.db` 按「小时 × 用户」聚合，与配额记账互不影响；后台提供概览、逐小时折线图、按用户排行。
 - **管理后台**：用户 / 权限组 / 邀请码 / 配额设置 / DSH 进程托管 / DeepSeek 余额查询。
 - **注入面板**：向 DSH 页面注入右下角悬浮卡片，实时显示用户名、窗口、个人与全局配额用量，支持收起与语言跟随（中/英）。
+- **非安全上下文可用**：见下方「注入 JS 手写 UUID polyfill」。
+- **局域网设置修复**：见下方「反代层 isLoopback 放行」，解决局域网 IP 访问时模型设置报错、内测声明反复弹出的问题。
+
+## 注入 JS 手写 UUID polyfill（绕过浏览器安全上下文限制）
+
+DSH 前端在启动早期就调用 `crypto.randomUUID()` 生成会话/请求 ID。但 **`crypto.randomUUID` 只在安全上下文（Secure Context）中可用** —— 即 `https://` 或 `localhost`。一旦通过 `http://<IP>`（局域网 IP、反向代理后的裸 HTTP 等）访问，`window.crypto.randomUUID` 不存在，DSH 前端一调即抛 `crypto.randomUUID is not a function`。
+
+NekoSeek 在向浏览器回传顶层导航 HTML 时，**在 `<head>` 起始处内联注入一段就地 polyfill**，先于 DSH 的任何 module/defer 脚本执行：
+
+- 优先用 `crypto.getRandomValues` 取真随机源生成 UUID v4（含 version/variant 位）；
+- `getRandomValues` 也不可用时退回 `Math.random`（仅保证 ID 不重复，安全性低于加密随机，但对会话/请求 ID 足够）；
+- 顺带补齐 `crypto.getRandomValues` 本身缺失的情形；
+- 用 `try`/`defineProperty` 包裹，`crypto` 只读或字段不可写时静默放弃，不影响页面。
+
+配合 DSH 的 CSP（`script-src 'self'`）：面板逻辑用**外联** `/static` 脚本（同源可执行），而 polyfill 必须在 DSH 的 module loader 之前跑，故**内联**且越靠前越好。由此 `http://IP` 直连也能正常打开 DSH webui。
+
+## 反代层 isLoopback 放行（修复局域网设置降级）
+
+DSH 前端的「设置」是一个 settings mirror，据 `connection.isLoopback` 选两种模式：`host`（持久化到 DSH 服务端）/ `memory`（只读视图恒为 `undefined`）。而 `isLoopback` 只看 `location.hostname` 是否为 loopback——经局域网 IP（`http://192.168.x.x`）访问时误判为 `false`，settings mirror 降级为 memory 只读模式，于是：
+
+- 模型设置页报「加载提供方目录失败： settings are unavailable in this browser」；
+- 内测声明「不再提示」等设置写入即丢，每次刷新反复弹出。
+
+NekoSeek 以**非侵入**方式在反代层修复（不改动 npm 安装目录任何文件，升级 DSH 零影响）：
+
+1. 注入的 polyfill 在 `<head>` 起始置 `window.__DSH_LOCAL_APP__ = true`；
+2. 反代透传 `dsh-client-connection` 浏览器 bundle（`/plugins/@deepseek-ai/dsh-client-connection/client.js`）时，将其中的 `isLoopback` 判定改写为额外认 `__DSH_LOCAL_APP__` 标记——只改线上字节，不碰磁盘。
+
+由此局域网访问下 settings mirror 恢复 `host` 模式，设置真正持久化到服务端，两个症状一并消除。改写锚点预期在 bundle 中恰好出现一次，失配（上游改版）时原样透传并记日志告警，不静默失效。
 
 ## 快速开始
 
@@ -22,7 +51,7 @@ pip install -r requirements.txt
 # 2. 配置环境变量
 cp .env.example .env
 #    至少设置 ADMIN_PASSWORD（首次启动播种初始管理员）
-#    按需设置 DEEPSEEK_API_KEY（会自动同步到 DSH 工作区）
+#    按需设置 DEEPSEEK_API_KEY（临时注入 DSH 子进程，不落盘）
 
 # 3. 启动网关
 python run.py
@@ -34,22 +63,33 @@ python run.py
 
 ## 配置项（.env）
 
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `SERVER_HOST` / `SERVER_PORT` | `0.0.0.0` / `8000` | 网关监听地址 |
-| `RELOAD` | `0` | `1` 开启热重载（开发用，单 worker） |
-| `DSH_UPSTREAM` | `http://127.0.0.1:3080` | DSH webui 上游地址 |
-| `DSH_COMMAND` | `dsh web` | 自动拉起 DSH 的完整命令 |
-| `DSH_AUTOSTART` | `0` | `1` 启动网关时自动拉起 DSH |
-| `DSH_HOME` | `./.dsh` | DSH 独立工作目录（隔离其 `.env`） |
-| `DEEPSEEK_API_KEY` | — | 配置后同步到 `DSH_HOME/.env`，并用于余额查询 |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / — | 首次建库的初始管理员凭据 |
-| `SESSION_MAX_AGE` | `604800` | 会话有效期（秒，默认 7 天） |
-| `SESSION_SECURE` | `0` | HTTPS 部署时置 `1` |
-| `QUOTA_WINDOW` | `day` | 配额计量窗口种子值（`5h`/`day`/`week`/`month`，运行以后台设置为准） |
-| `GLOBAL_QUOTA_LIMIT` | `0` | 全局配额上限（token 估算值，`0`=不限） |
+| 变量 | 默认 | 说明                                                        |
+|------|------|-----------------------------------------------------------|
+| `SERVER_HOST` / `SERVER_PORT` | `0.0.0.0` / `8000` | 网关监听地址                                                    |
+| `RELOAD` | `0` | `1` 开启热重载（开发用；固定单 worker）                                 |
+| `DSH_UPSTREAM` | `http://127.0.0.1:3080` | DSH webui 上游地址（不允许带路径前缀）                                  |
+| `DSH_COMMAND` | `dsh web` | 自动拉起 DSH 的完整命令（含参数）                                       |
+| `DSH_PATCH` | `pin-browse.cordis.yml` | cordis patch 文件，相对路径按项目根目录解析；留空不加 `--patch`               |
+| `DSH_AUTOSTART` | `0` | `1` 启动网关时自动拉起 DSH                                         |
+| `DSH_HOME` | `~/.dsh` | DSH 工作目录；留空由 dsh 基于运行账户 HOME 自建，显式配置则创建并授权给降权账户后透传（Linux） |
+| `DSH_RUN_AS_USER` | `nekoseek-dsh` | Linux 降权运行 DSH 的独立账户（Windows 忽略）                          |
+| `DEEPSEEK_API_KEY` | — | 通过环境变量临时注入 DSH 子进程（不落盘），并用于余额查询；可在后台在线修改并热重启生效            |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / — | 首次建库的初始管理员凭据（之后可移除）                                       |
+| `SESSION_MAX_AGE` | `604800` | 会话有效期（秒，默认 7 天）                                           |
+| `SESSION_SECURE` | `0` | HTTPS 部署时置 `1`（Secure cookie）                             |
+| `QUOTA_WINDOW` | `day` | 配额计量窗口种子值（`5h`/`day`/`week`/`month`，运行以后台设置为准）            |
+| `GLOBAL_QUOTA_LIMIT` | `0` | 全局配额上限（token 估算值，`0`=不限）                                  |
 
-启动时对 `DSH_UPSTREAM`、`SERVER_PORT`、`QUOTA_WINDOW` 等做 fail-fast 校验，配置非法会直接报错。
+启动时对 `DSH_UPSTREAM`、`SERVER_PORT`、`QUOTA_WINDOW`、`DSH_PATCH` 等做 fail-fast 校验，配置非法会直接报错。
+
+## DSH 进程托管与权限隔离
+
+设 `DSH_AUTOSTART=1` 后，网关负责拉起/停止 DSH 子进程，分平台处理：
+
+- **Windows**：以当前用户直接拉起，`cwd` 用 `DSH_HOME`。
+- **Linux**：网关须以 **root** 启动。若 `DSH_RUN_AS_USER` 账户不存在则自动创建（`useradd -r -m`），把 patch 文件 / 工作目录属权交给它，再用 `preexec_fn` 在子进程 exec 前 `initgroups → setgid → setuid` 降权，使 DSH 以独立账户运行，其 `~/.dsh` 落在该账户家目录下，**与网关自身文件隔离**（防止 DSH 被操控后改写网关文件）。未以 root 启动时抛 `DSHIsolationError`，**宁可不启动也不静默回退**。
+
+> DSH 启动时会读取**当前工作目录**下的 `.env`，并校验 `DEEPSEEK_BASE_URL` 等启动级变量只能来自启动 shell。因此必须给 DSH 一个**独立 cwd**（不含本项目 `.env`），避免误读网关配置而崩溃。`DEEPSEEK_API_KEY` 不写入任何 `.env`，而是拉起子进程时通过环境变量临时注入，仅存在于该子进程生命周期内。
 
 ## 架构
 
@@ -67,32 +107,33 @@ python run.py
 **分层**：`app/api`（路由）→ `app/core`（认证/会话/配额/安全/DB）→ `app/services`（HTTP 与 WS 代理、面板注入、DSH 进程托管）。
 
 **数据（SQLite，三库分离）**：
-- `data.db` — 用户 / 权限组 / 邀请码 / 窗口化配额（`usage_records`，user_id=0 为全局池）
+- `data.db` — 用户 / 权限组 / 邀请码 / 窗口化配额（`usage_records`，user_id=0 为全局池）/ 运行时设置
 - `cache.db` — 会话
 - `stats.db` — 详细用量统计（`usage_hourly`，永不被配额重置清空）
 
-**配额计量口径**：输入在 HTTP prompt 端点（`/api/session.prompt`、`/api/subagent.prompt`）对 `content[].text` 粗略分词估算；输出在 WS 下行 `assistant/message` 帧取真实 `usage.outputTokens`，缺失时退化为文本估算。两侧互不重复。
+**配额计量口径**：输入在 HTTP prompt 端点（`/api/session.prompt`、`/api/subagent.prompt`）对 `content[].text` 粗略分词估算；输出在 WS 下行 `assistant/message` 帧取真实 `usage.outputTokens`，缺失时退化为文本估算。两侧互不重复（输入已由 HTTP 侧记，WS 侧只补输出）。
 
 ## 安全说明
 
 - 邀请码注册制，无公开注册入口；口令以 PBKDF2（20 万次迭代）加盐存储。
-- 登录失败统一提示并对「用户不存在」走 dummy 凭据补齐计算耗时，降低枚举风险。
-- 登录接口限流（按真实 IP + UA 前缀，`5 次 / 15 分钟`）。
-- 仅顶层导航 HTML（`sec-fetch-dest=document`）注入面板，SPA 的 XHR 片段不注入，避免脚本重复执行。
+- 登录失败统一提示，并对「用户不存在」走 dummy 凭据补齐 PBKDF2 耗时，配合随机延迟降低用户枚举/时序侧信道风险。
+- 登录接口限流（按真实 IP + UA 前缀，`5 次 / 15 分钟`，防 `X-Forwarded-For` 伪造）。
+- 仅顶层导航 HTML（`sec-fetch-dest=document`）注入面板与 polyfill，SPA 的 XHR 片段不注入，避免脚本重复执行。
 - 会话为 HTTP-only Cookie，账号停用后立即失效；窗口超限时仅拦截 prompt 端点返回 429，不影响页面浏览。
+- Linux 下 DSH 以独立账户降权运行，与网关文件系统隔离（见上节）。
 
 ## 目录结构
 
 ```
 app/
   api/v1/       auth / admin / panel 路由
-  core/         auth / session / quota / security / tokenize / db
-  services/     proxy(HTTP) / ws_proxy(WS) / inject / dsh_process / dsh_env / ds_balance
-frontend/       login / admin 页面 + 注入面板静态资源
-tests/          pytest 测试（单元 + 集成，覆盖核心逻辑）
-tools/          诊断脚本
+  core/         auth / session / quota / security / tokenize
+  core/db/      db(连接) / db_op(业务CRUD) / stats_op(统计) / init_db(建表播种)
+  services/     proxy(HTTP) / ws_proxy(WS) / inject(面板+polyfill) / dsh_process(托管) / ds_balance
+frontend/       login / admin 页面 + 注入面板静态资源（ebui-panel.*）
+tests/          pytest 测试（单元 + 集成）
+tools/          诊断脚本（diag_dsh.py 等）
 data/db/        SQLite 数据（运行时生成）
-.dsh/           DSH 独立工作目录
 run.py          启动入口
 ```
 
@@ -103,8 +144,14 @@ pip install -r requirements-dev.txt   # 含 pytest / pytest-asyncio
 pytest                                 # 运行全部测试
 ```
 
-测试通过 `tests/conftest.py` 把三个 SQLite 库重定向到临时目录、补丁 thread-local 连接，做到用例间完全隔离，不会读写真实 `data/db/`。HTTP/WS 上游用 mock 替身，无需真实 DSH 进程。
+测试通过 `tests/conftest.py` 把三个 SQLite 库重定向到临时目录、补丁 thread-local 连接，做到用例间完全隔离，不读写真实 `data/db/`。HTTP/WS 上游用 mock 替身，无需真实 DSH 进程。
 
 ## 许可证
 
 [MIT](LICENSE)
+
+## 致谢
+
+- 局域网 `isLoopback` 降级问题的根因分析与修复思路，参考自 [deepseek-harness-fpk issue #2](https://github.com/10000ge10000/deepseek-harness-fpk/issues/2)（@xiaoke799 的源码级排查）。
+- 本项目由 **Kimi K3 与 DeepSeek V4 Flash** 辅助设计与编写。
+- 感谢 **DeepSeek** 提供 DeepSeek Harness 与底层模型能力。
