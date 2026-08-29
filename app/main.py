@@ -37,6 +37,7 @@ from app.core.auth import (
     get_current_user_or_redirect,
 )
 from app.core.db.init_db import init_db
+from app.core import permguard
 from app.core.session import get_session_user_id, start_cleanup_worker
 from app.services import dsh_process, usage_meter
 from app.services.proxy import proxy_webui, probe_upstream
@@ -50,6 +51,8 @@ STATIC_DIR = FRONTEND_DIR / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Linux 下收紧 .env 与 data/ 权限，必须早于 init_db（建库/落盘前）。
+    permguard.harden()
     init_db()
     start_cleanup_worker()
     if DSH_AUTOSTART:
