@@ -146,6 +146,17 @@ NekoSeek 以**非侵入**方式在反代层修复（不改动 npm 安装目录�
 
 > DSH 启动时会读取**当前工作目录**下的 `.env`，并校验 `DEEPSEEK_BASE_URL` 等启动级变量只能来自启动 shell。因此必须给 DSH 一个**独立 cwd**（不含本项目 `.env`），避免误读网关配置而崩溃。`DEEPSEEK_API_KEY` 不写入任何 `.env`，而是拉起子进程时通过环境变量临时注入，仅存在于该子进程生命周期内。
 
+### pin-browse.cordis.yml：固定 WebUI 内嵌目录选择器
+
+DSH web 的目录选择器默认是 `-auto` 行，按环境自动选 `native` 或 `browse` 后端；本机 win32 + 绑定 127.0.0.1 时恒选 `native`——**弹的是宿主机（服务器）上的原生 Win32 文件夹对话框**，经网关/局域网访问的用户根本看不到，目录选择直接不可用。
+
+`pin-browse.cordis.yml` 是一份 cordis patch（仓库根目录，随项目分发）：
+
+- 禁用 `directory-picker`（auto 行）；
+- 直接挂 `dsh-host-directory-picker-browse` 后端 + `dsh-client-ui-directory-picker-browse` 浏览器端选择器。
+
+由此目录选择固定在 WebUI 内嵌浏览框，与访问方式无关。网关通过 `DSH_PATCH`（默认即 `pin-browse.cordis.yml`，可在 `.env` 覆盖或留空禁用）在自动拉起 DSH 时以 `--patch` 传入；也可手动 `dsh web --patch <patch文件的绝对路径或与dsh工作目录的相对路径>`，或把文件内容合并进 `%USERPROFILE%\.dsh\profiles\web\cordis.patch.yml` 长期固定。patch 只作用于启动时加载，**不改动 DSH 安装目录任何文件**，升级 DSH 零影响。
+
 ## 安全说明
 
 - 邀请码注册制，无公开注册入口；口令以 PBKDF2（20 万次迭代）加盐存储。
