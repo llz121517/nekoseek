@@ -10,13 +10,15 @@ DSH webui 的**透明反向代理网关**：在 DSH 前端之前叠加一层认�
 
 - [功能特性](#功能特性)
 - [快速开始](#快速开始)
-- [配置项](#配置项env)
+- [配置项（.env）](#配置项env)
 - [架构](#架构)
-- [技术专题](#技术专题)
-  - [注入 JS 手写 UUID polyfill](#注入-js-手写-uuid-polyfill绕过浏览器安全上下文限制)
-  - [反代层 isLoopback 放行](#反代层-isloopback-放行修复局域网设置降级)
 - [DSH 进程托管与权限隔离](#dsh-进程托管与权限隔离)
 - [安全说明](#安全说明)
+- [技术专题](#技术专题)
+  - [配额计量口径](#配额计量口径)
+  - [注入 JS 手写 UUID polyfill（绕过安全上下文限制）](#注入-js-手写-uuid-polyfill绕过安全上下文限制)
+  - [反代层 isLoopback 放行（修复局域网设置降级）](#反代层-isloopback-放行修复局域网设置降级)
+  - [pin-browse.cordis.yml（固定 WebUI 内嵌目录选择器）](#pin-browsecordisyml固定-webui-内嵌目录选择器)
 - [目录结构](#目录结构)
 - [测试](#测试)
 - [许可证](#许可证)
@@ -27,13 +29,12 @@ DSH webui 的**透明反向代理网关**：在 DSH 前端之前叠加一层认�
 ## 功能特性
 
 - **透明反代**：HTTP catch-all + WebSocket 隧道，原样转发 DSH webui 的全部页面、静态资源、SSE 与 RPC。
-- **认证与会话**：邀请码注册制、PBKDF2-HMAC-SHA256 加盐口令、HTTP-only Cookie 会话（存 SQLite）、登录限流与时序侧信道防护。
-- **配额计量**：全局池 + 单用户两级配额，窗口可切换（5h / 天 / 周 / 月）。输入与输出统一取网关常驻 mux 订阅（WS 下行）里的真实 `usage`（含缓存命中的上下文），不做请求体估算；按 HTTP prompt 记录的 sessionId 归属记账，与浏览器是否在线无关。
+- **认证与会话**：邀请码注册制、PBKDF2 加盐口令、HTTP-only Cookie 会话（存 SQLite）、登录限流。
+- **配额计量**：全局池 + 单用户两级配额，窗口可切换（5h / 天 / 周 / 月）。输入与输出统一取网关常驻 mux 订阅（WS 下行）里的真实 `usage`（含缓存命中的上下文），不做请求体估算；按 HTTP prompt 记录的 sessionId 归属记账，与浏览器是否在线无关。详见「[配额计量口径](#配额计量口径)」。
 - **用量统计**：独立 `stats.db` 按「小时 × 用户」聚合，与配额记账互不影响；后台提供概览、逐小时折线图、按用户排行。
 - **管理后台**：用户 / 权限组 / 邀请码 / 配额设置 / DSH 进程托管 / DeepSeek 余额查询。
 - **注入面板**：向 DSH 页面注入右下角悬浮卡片，实时显示用户名、窗口、个人与全局配额用量，支持收起与语言跟随（中/英）。
-- **非安全上下文可用**：见「[注入 JS 手写 UUID polyfill](#注入-js-手写-uuid-polyfill绕过浏览器安全上下文限制)」。
-- **局域网设置修复**：见「[反代层 isLoopback 放行](#反代层-isloopback-放行修复局域网设置降级)」，解决局域网 IP 访问时模型设置报错、内测声明反复弹出的问题。
+- **DSH 兼容修复**：注入 JS 手写 UUID polyfill 让 `http://IP`（非安全上下文）也能打开 DSH；改写 `isLoopback` 判定修复局域网设置降级；cordis patch 固定 WebUI 内嵌目录选择器。见「[技术专题](#技术专题)」。
 
 ## 快速开始
 
@@ -52,7 +53,7 @@ python run.py
 
 默认监听 `0.0.0.0:8000`，访问 `/` 即进入登录页。首次启动会自动建库、播种 `admin`/`user` 权限组与初始管理员。
 
-> 网关需能连到 DSH 上游（默认 `http://127.0.0.1:3080`）。设 `DSH_AUTOSTART=1` 可让网关在启动时按 `DSH_COMMAND` 自动拉起 DSH 进程。
+> 网关需能连到 DSH 上游（默认 `http://127.0.0.1:3080`）。设 `DSH_AUTOSTART=1` 可让网关在启动时按 `DSH_COMMAND` 自动拉起 DSH 进程，见「[DSH 进程托管与权限隔离](#dsh-进程托管与权限隔离)」。
 
 ## 配置项（.env）
 
@@ -98,19 +99,43 @@ python run.py
 - `cache.db` — 会话
 - `stats.db` — 详细用量统计（`usage_hourly`，永不被配额重置清空）
 
-**配额计量口径**：输入与输出统一取自 mux 事件流 `assistant/message` 帧的真实 `usage`，HTTP 侧不计量。
+**配额计量口径**：输入与输出统一取自 mux 事件流 `assistant/message` 帧的真实 `usage`（输入 = `inputTokens` + `cacheReadTokens`，输出 = `outputTokens`），HTTP 侧不计量；计量由网关常驻的 `usage_meter` 完成，浏览器 WS 隧道纯透传。完整口径与归属规则见「[配额计量口径](#配额计量口径)」。
 
-- 计量由网关常驻的 `usage_meter` 完成：自持一条 `/api/events.mux` WS 订阅（与浏览器 WS 下行同一广播源），是唯一记账来源。DSH 的 mux 事件流是**广播**（所有 session 的事件推给每条连接）且**不重放**，若在浏览器 WS 上记账会把他人用量误记到闲置用户头上、关页面还可绕过配额——因此浏览器隧道不记账。
-- **归属**：mux 帧只带 `sessionId`；prompt 只走 HTTP（WS 下行是纯推送），代理在 `session.prompt` / `subagent.prompt` 端点记录 `sessionId → 发起者`，计量帧按 `sessionId` 找回真正发起者。无归属的会话（agent 自动派生的子代理、网关重启前的会话）只记全局池，不计个人。他人对同一会话插话时归属默认转移给插话者（`attribution.py` 的 `TRANSFER_ON_PROMPT` 常量可切换为先入为主）。
-- 一轮回复只发一条 `assistant/message` 完整帧（`assistant/chunk` 流式分片不带 `usage`），逐帧直接记账，无需增量去重。
-- **输入 = `inputTokens` + `cacheReadTokens`**：`inputTokens` 是本轮新增的非缓存输入（用户当条 prompt），`cacheReadTokens` 是以缓存命中形式计入的 system prompt / 历史上下文 / 工具结果。两者相加才是模型本轮实际处理的完整输入——只取 `inputTokens` 会漏掉上下文大头。
-- **输出 = `outputTokens`**；`usage` 缺失时退化为对 `message.content` 文本粗略分词估算（此时输入计 0）。
+## DSH 进程托管与权限隔离
+
+设 `DSH_AUTOSTART=1` 后，网关负责拉起/停止 DSH 子进程，分平台处理：
+
+- **Windows**：以当前用户直接拉起，`cwd` 用 `DSH_HOME`。
+- **Linux**：网关须以 **root** 启动。若 `DSH_RUN_AS_USER` 账户不存在则自动创建（`useradd -r -m`），把 patch 文件 / 工作目录属权交给它，再用 `preexec_fn` 在子进程 exec 前 `initgroups → setgid → setuid` 降权，使 DSH 以独立账户运行，其 `~/.dsh` 落在该账户家目录下，**与网关自身文件隔离**（防止 DSH 被操控后改写网关文件）。未以 root 启动时抛 `DSHIsolationError`，**宁可不启动也不静默回退**。
+
+> DSH 启动时会读取**当前工作目录**下的 `.env`，并校验 `DEEPSEEK_BASE_URL` 等启动级变量只能来自启动 shell。因此必须给 DSH 一个**独立 cwd**（不含本项目 `.env`），避免误读网关配置而崩溃。`DEEPSEEK_API_KEY` 不写入任何 `.env`，而是拉起子进程时通过环境变量临时注入，仅存在于该子进程生命周期内。
+
+目录选择器在 win32 + 绑定 127.0.0.1 时默认弹宿主机原生对话框；网关以 `DSH_PATCH`（默认 `pin-browse.cordis.yml`）在拉起 DSH 时传入 `--patch` 固定为 WebUI 内嵌选择器，详见「[pin-browse.cordis.yml](#pin-browsecordisyml固定-webui-内嵌目录选择器)」。
+
+## 安全说明
+
+- 邀请码注册制，无公开注册入口；口令以 PBKDF2（20 万次迭代）加盐存储。
+- 登录失败统一提示，并对「用户不存在」走 dummy 凭据补齐 PBKDF2 耗时，配合随机延迟降低用户枚举/时序侧信道风险。
+- 登录接口限流（按真实 IP + UA 前缀，`5 次 / 15 分钟`，防 `X-Forwarded-For` 伪造）。
+- 仅顶层导航 HTML（`sec-fetch-dest=document`）注入面板与 polyfill，SPA 的 XHR 片段不注入，避免脚本重复执行。
+- 会话为 HTTP-only Cookie，账号停用后立即失效；窗口超限时仅拦截 prompt 端点返回 429，不影响页面浏览。
+- Linux 启动时强制收紧敏感路径权限：`.env` → `600`、`data/` → `700`（目录需保留属主 x 位方可遍历，700 已对其它账户完全封闭），防止同机其它账户（含降权运行的 DSH）读取口令与 SQLite 数据；修复失败即中止启动。
 
 ## 技术专题
 
-以下两节深入剖析 NekoSeek 针对 DSH 在「非安全上下文 / 局域网访问」场景下的两个关键修复。它们都是在反代层以**非侵入**方式实现的——不改动 DSH 安装目录的任何磁盘文件，升级 DSH 零影响。
+以下四节深入剖析 NekoSeek 的核心设计：配额计量的口径与归属，以及针对 DSH 在「非安全上下文 / 局域网访问 / win32 回环绑定」场景下行为异常的三处兼容修复。它们都在网关侧以**非侵入**方式实现——不改动 DSH 安装目录的任何磁盘文件，升级 DSH 零影响。
 
-### 注入 JS 手写 UUID polyfill（绕过浏览器安全上下文限制）
+### 配额计量口径
+
+计量由网关常驻的 `usage_meter` 完成：自持一条 `/api/events.mux` WS 订阅（与浏览器 WS 下行同一广播源），是唯一记账来源。
+
+- **为何不在浏览器 WS 上记账**：DSH 的 mux 事件流是**广播**（所有 session 的事件推给每条连接）且**不重放**——在浏览器 WS 上记账会把他人用量误记到闲置用户头上，关页面还可绕过配额。因此浏览器隧道纯透传、不记账。
+- **归属**：mux 帧只带 `sessionId`；prompt 只走 HTTP（WS 下行是纯推送），代理在 `session.prompt` / `subagent.prompt` 端点记录 `sessionId → 发起者`，计量帧按 `sessionId` 找回真正发起者。无归属的会话（agent 自动派生的子代理、网关重启前的会话）只记全局池，不计个人。他人对同一会话插话时归属默认转移给插话者（`attribution.py` 的 `TRANSFER_ON_PROMPT` 常量可切换为先入为主）。
+- **逐帧直接记账**：一轮回复只发一条 `assistant/message` 完整帧（`assistant/chunk` 流式分片不带 `usage`），无需增量去重。
+- **输入 = `inputTokens` + `cacheReadTokens`**：`inputTokens` 是本轮新增的非缓存输入（用户当条 prompt），`cacheReadTokens` 是以缓存命中形式计入的 system prompt / 历史上下文 / 工具结果。两者相加才是模型本轮实际处理的完整输入——只取 `inputTokens` 会漏掉上下文大头。
+- **输出 = `outputTokens`**；`usage` 缺失时退化为对 `message.content` 文本粗略分词估算（此时输入计 0）。
+
+### 注入 JS 手写 UUID polyfill（绕过安全上下文限制）
 
 DSH 前端在启动早期就调用 `crypto.randomUUID()` 生成会话/请求 ID。但 **`crypto.randomUUID` 只在安全上下文（Secure Context）中可用** —— 即 `https://` 或 `localhost`。一旦通过 `http://<IP>`（局域网 IP、反向代理后的裸 HTTP 等）访问，`window.crypto.randomUUID` 不存在，DSH 前端一调即抛 `crypto.randomUUID is not a function`。
 
@@ -137,16 +162,7 @@ NekoSeek 以**非侵入**方式在反代层修复（不改动 npm 安装目录�
 
 由此局域网访问下 settings mirror 恢复 `host` 模式，设置真正持久化到服务端，两个症状一并消除。改写锚点预期在 bundle 中恰好出现一次，失配（上游改版）时原样透传并记日志告警，不静默失效。
 
-## DSH 进程托管与权限隔离
-
-设 `DSH_AUTOSTART=1` 后，网关负责拉起/停止 DSH 子进程，分平台处理：
-
-- **Windows**：以当前用户直接拉起，`cwd` 用 `DSH_HOME`。
-- **Linux**：网关须以 **root** 启动。若 `DSH_RUN_AS_USER` 账户不存在则自动创建（`useradd -r -m`），把 patch 文件 / 工作目录属权交给它，再用 `preexec_fn` 在子进程 exec 前 `initgroups → setgid → setuid` 降权，使 DSH 以独立账户运行，其 `~/.dsh` 落在该账户家目录下，**与网关自身文件隔离**（防止 DSH 被操控后改写网关文件）。未以 root 启动时抛 `DSHIsolationError`，**宁可不启动也不静默回退**。
-
-> DSH 启动时会读取**当前工作目录**下的 `.env`，并校验 `DEEPSEEK_BASE_URL` 等启动级变量只能来自启动 shell。因此必须给 DSH 一个**独立 cwd**（不含本项目 `.env`），避免误读网关配置而崩溃。`DEEPSEEK_API_KEY` 不写入任何 `.env`，而是拉起子进程时通过环境变量临时注入，仅存在于该子进程生命周期内。
-
-### pin-browse.cordis.yml：固定 WebUI 内嵌目录选择器
+### pin-browse.cordis.yml（固定 WebUI 内嵌目录选择器）
 
 DSH web 的目录选择器默认是 `-auto` 行，按环境自动选 `native` 或 `browse` 后端；本机 win32 + 绑定 127.0.0.1 时恒选 `native`——**弹的是宿主机（服务器）上的原生 Win32 文件夹对话框**，经网关/局域网访问的用户根本看不到，目录选择直接不可用。
 
@@ -156,16 +172,6 @@ DSH web 的目录选择器默认是 `-auto` 行，按环境自动选 `native` �
 - 直接挂 `dsh-host-directory-picker-browse` 后端 + `dsh-client-ui-directory-picker-browse` 浏览器端选择器。
 
 由此目录选择固定在 WebUI 内嵌浏览框，与访问方式无关。网关通过 `DSH_PATCH`（默认即 `pin-browse.cordis.yml`，可在 `.env` 覆盖或留空禁用）在自动拉起 DSH 时以 `--patch` 传入；也可手动 `dsh web --patch <patch文件的绝对路径或与dsh工作目录的相对路径>`，或把文件内容合并进 `%USERPROFILE%\.dsh\profiles\web\cordis.patch.yml` 长期固定。patch 只作用于启动时加载，**不改动 DSH 安装目录任何文件**，升级 DSH 零影响。
-
-## 安全说明
-
-- 邀请码注册制，无公开注册入口；口令以 PBKDF2（20 万次迭代）加盐存储。
-- 登录失败统一提示，并对「用户不存在」走 dummy 凭据补齐 PBKDF2 耗时，配合随机延迟降低用户枚举/时序侧信道风险。
-- 登录接口限流（按真实 IP + UA 前缀，`5 次 / 15 分钟`，防 `X-Forwarded-For` 伪造）。
-- 仅顶层导航 HTML（`sec-fetch-dest=document`）注入面板与 polyfill，SPA 的 XHR 片段不注入，避免脚本重复执行。
-- 会话为 HTTP-only Cookie，账号停用后立即失效；窗口超限时仅拦截 prompt 端点返回 429，不影响页面浏览。
-- Linux 启动时强制收紧敏感路径权限：`.env` → `600`、`data/` → `700`（目录需保留属主 x 位方可遍历，700 已对其它账户完全封闭），防止同机其它账户（含降权运行的 DSH）读取口令与 SQLite 数据；修复失败即中止启动。
-- Linux 下 DSH 以独立账户降权运行，与网关文件系统隔离（见上节）。
 
 ## 目录结构
 
