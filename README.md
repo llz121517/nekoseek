@@ -28,7 +28,7 @@ DSH webui 的**透明反向代理网关**：在 DSH 前端之前叠加一层认�
 
 - **透明反代**：HTTP catch-all + WebSocket 隧道，原样转发 DSH webui 的全部页面、静态资源、SSE 与 RPC。
 - **认证与会话**：邀请码注册制、PBKDF2-HMAC-SHA256 加盐口令、HTTP-only Cookie 会话（存 SQLite）、登录限流与时序侧信道防护。
-- **配额计量**：全局池 + 单用户两级配额，窗口可切换（5h / 天 / 周 / 月）。输入与输出统一取 WS 下行帧的真实 `usage`（含缓存命中的上下文），不做请求体估算。
+- **配额计量**：全局池 + 单用户两级配额，窗口可切换（5h / 天 / 周 / 月）。输入与输出统一取网关常驻 mux 订阅（WS 下行）里的真实 `usage`（含缓存命中的上下文），不做请求体估算；按 HTTP prompt 记录的 sessionId 归属记账，与浏览器是否在线无关。
 - **用量统计**：独立 `stats.db` 按「小时 × 用户」聚合，与配额记账互不影响；后台提供概览、逐小时折线图、按用户排行。
 - **管理后台**：用户 / 权限组 / 邀请码 / 配额设置 / DSH 进程托管 / DeepSeek 余额查询。
 - **注入面板**：向 DSH 页面注入右下角悬浮卡片，实时显示用户名、窗口、个人与全局配额用量，支持收起与语言跟随（中/英）。
@@ -71,7 +71,7 @@ python run.py
 | `SESSION_MAX_AGE` | `604800`                | 会话有效期（秒，默认 7 天）                                           |
 | `SESSION_SECURE` | `0`                     | HTTPS 部署时置 `1`（Secure cookie）                             |
 | `QUOTA_WINDOW` | `day`                   | 配额计量窗口种子值（`5h`/`day`/`week`/`month`，运行以后台设置为准）            |
-| `GLOBAL_QUOTA_LIMIT` | `0`                     | 全局配额上限（token 估算值，`0`=不限）                                  |
+| `GLOBAL_QUOTA_LIMIT` | `0`                     | 全局配额上限（token 数，`0`=不限）                                  |
 
 启动时对 `DSH_UPSTREAM`、`SERVER_PORT`、`QUOTA_WINDOW`、`DSH_PATCH` 等做 fail-fast 校验，配置非法会直接报错。
 
@@ -84,8 +84,10 @@ python run.py
               ├─ /api/v1/admin    用户·权限组·邀请码·配额·统计·DSH 进程
               ├─ /api/v1/panel    注入面板数据
               ├─ /login /admin    自带页面
-              ├─ WS /{path}       WebSocket 隧道（下行帧真实 usage 计输入+输出 token）
-              └─ HTTP /{path}     catch-all 透传（不计量）
+              ├─ WS /{path}       WebSocket 隧道（纯透传，不计量）
+              ├─ HTTP /{path}     catch-all 透传（prompt 端点记录 sessionId 归属）
+              └─ 常驻任务          usage_meter：订阅上游 /api/events.mux（WS 下行），
+                                   按归属映射记账（usage 真实值计输入+输出 token）
 ```
 
 **分层**：`app/api`（路由）→ `app/core`（认证/会话/配额/安全/DB）→ `app/services`（HTTP 与 WS 代理、面板注入、DSH 进程托管）。
@@ -96,8 +98,10 @@ python run.py
 - `cache.db` — 会话
 - `stats.db` — 详细用量统计（`usage_hourly`，永不被配额重置清空）
 
-**配额计量口径**：输入与输出统一取自 WS 下行 `assistant/message` 帧的真实 `usage`，HTTP 侧不计量。
+**配额计量口径**：输入与输出统一取自 mux 事件流 `assistant/message` 帧的真实 `usage`，HTTP 侧不计量。
 
+- 计量由网关常驻的 `usage_meter` 完成：自持一条 `/api/events.mux` WS 订阅（与浏览器 WS 下行同一广播源），是唯一记账来源。DSH 的 mux 事件流是**广播**（所有 session 的事件推给每条连接）且**不重放**，若在浏览器 WS 上记账会把他人用量误记到闲置用户头上、关页面还可绕过配额——因此浏览器隧道不记账。
+- **归属**：mux 帧只带 `sessionId`；prompt 只走 HTTP（WS 下行是纯推送），代理在 `session.prompt` / `subagent.prompt` 端点记录 `sessionId → 发起者`，计量帧按 `sessionId` 找回真正发起者。无归属的会话（agent 自动派生的子代理、网关重启前的会话）只记全局池，不计个人。他人对同一会话插话时归属默认转移给插话者（`attribution.py` 的 `TRANSFER_ON_PROMPT` 常量可切换为先入为主）。
 - 一轮回复只发一条 `assistant/message` 完整帧（`assistant/chunk` 流式分片不带 `usage`），逐帧直接记账，无需增量去重。
 - **输入 = `inputTokens` + `cacheReadTokens`**：`inputTokens` 是本轮新增的非缓存输入（用户当条 prompt），`cacheReadTokens` 是以缓存命中形式计入的 system prompt / 历史上下文 / 工具结果。两者相加才是模型本轮实际处理的完整输入——只取 `inputTokens` 会漏掉上下文大头。
 - **输出 = `outputTokens`**；`usage` 缺失时退化为对 `message.content` 文本粗略分词估算（此时输入计 0）。
@@ -156,9 +160,9 @@ NekoSeek 以**非侵入**方式在反代层修复（不改动 npm 安装目录�
 ```
 app/
   api/v1/       auth / admin / panel 路由
-  core/         auth / session / quota / security / tokenize
+  core/         auth / session / quota / attribution(用量归属) / security / tokenize
   core/db/      db(连接) / db_op(业务CRUD) / stats_op(统计) / init_db(建表播种)
-  services/     proxy(HTTP) / ws_proxy(WS) / inject(面板+polyfill) / dsh_process(托管) / ds_balance
+  services/     proxy(HTTP) / ws_proxy(WS) / usage_meter(常驻计量) / inject(面板+polyfill) / dsh_process(托管) / ds_balance
 frontend/       login / admin 页面 + 静态资源
   static/js     login / admin / common / ebui-panel(注入面板)
   static/css    login / admin / common / ebui-panel

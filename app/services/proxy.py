@@ -5,11 +5,11 @@ HTTP 透明反代：DSH webui 全部请求透传。
 对顶层导航的 HTML 响应（sec-fetch-dest=document）缓冲并注入用户信息面板；
 其余请求（SSE、JS、CSS、XHR 片段等）一律流式透传。
 
-配额计量：输入与输出统一走 WS 下行帧里的真实 usage（见 ws_proxy.py）。
-HTTP 侧不再对 prompt 请求体做输入估算——请求体只含用户当条输入，
-system prompt / 历史上下文 / 工具结果由 DSH 服务端拼装，估算必然残缺，
-已由 WS 真实 inputTokens 取代（避免双计，HTTP 侧不再计输入）。
+配额计量：输入与输出统一走网关常驻 mux 消费者（usage_meter.py）里的真实
+usage；HTTP 侧不再做任何计量，只在 prompt 端点记录 sessionId → 发起者的
+归属映射（attribution.py），供计量帧按 sessionId 找回真正发起者。
 """
+import json
 import logging
 import time
 
@@ -18,6 +18,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.config import DSH_UPSTREAM, DSH_ORIGIN
+from app.core import attribution
 from app.services.inject import inject_panel_tags
 
 logger = logging.getLogger("nekoseek.proxy")
@@ -38,8 +39,31 @@ _client = httpx.AsyncClient(base_url=DSH_UPSTREAM, timeout=_STREAM_TIMEOUT)
 
 # DSH RPC prompt 端点路径后缀（见 dsh-client-connection/lib/types/api-path.d.ts
 # 与 dsh-host-apiproxy/lib/types/api/rpc-map.d.ts 的 session.prompt / subagent.prompt）。
-# 保留供将来按路径过滤参考；输入计量已移交 WS 侧真实 usage，HTTP 侧不再使用。
+# 配额预检（main.py）与用量归属捕获（下方 _record_prompt_attribution）都以此识别。
 _PROMPT_PATH_SUFFIXES = ("/api/session.prompt", "/api/subagent.prompt")
+
+
+def _record_prompt_attribution(url: str, body: bytes, user: dict | None) -> None:
+    """
+    在 prompt 端点上记录 sessionId → 发起者 的归属映射（供 usage_meter 记账）。
+
+    DSH 协议规定 prompt 只走 HTTP（WS 下行是纯推送），这是唯一能捕获"谁发起"
+    的位置。body 为 client-request 封套：
+      session.prompt:  payload.sessionId
+      subagent.prompt: payload.childSessionId（continuable 子代理的
+                       assistant/message 帧带的是 childSessionId）
+    任何解析异常都静默跳过——归属捕获绝不能阻断转发。
+    """
+    if user is None or not url.split("?", 1)[0].endswith(_PROMPT_PATH_SUFFIXES):
+        return
+    try:
+        payload = json.loads(body).get("payload") or {}
+        for key in ("sessionId", "childSessionId"):
+            sid = payload.get(key)
+            if isinstance(sid, str) and sid:
+                attribution.record_prompt_session(sid, user["id"])
+    except Exception:  # noqa: BLE001
+        pass
 
 # 局域网/反代访问下 settings mirror 降级的修复（非侵入，仅改线上字节，不动磁盘）。
 # DSH 前端的 settings mirror 用 connection.isLoopback 选 host（持久化到服务端）/
@@ -127,14 +151,15 @@ async def proxy_webui(request: Request, path: str, user: dict | None = None) -> 
     顶层导航 HTML 缓冲后注入用户信息面板；其余响应流式透传。
     上游不可达时返回 502 Bad Gateway。
 
-    输入/输出 token 计量统一由 WS 侧真实 usage 负责（见 ws_proxy.py），
-    HTTP 侧不做任何计量。
+    输入/输出 token 计量统一由 usage_meter（网关常驻 mux 消费者）负责；
+    本函数仅在 prompt 端点记录归属映射，不做任何计量。
     """
     url = "/" + path if path else "/"
     if request.url.query:
         url += "?" + request.url.query
 
     body = await request.body()
+    _record_prompt_attribution(url, body, user)
 
     headers = _forward_headers(request)
     # DSH 会校验 Origin 与自身同源，否则返回 403。将浏览器带来的

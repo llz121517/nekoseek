@@ -1,6 +1,8 @@
 # app/core/tokenize.py
 """
-粗略分词估算 tokens（前端输入/输出文本 → token 估算）
+粗略分词估算 tokens：mux 事件帧缺失 usage 时的兜底估算。
+仅用于 usage_meter 对 assistant 输出文本的近似计量（此时输入计 0）；
+输入/输出的正式计量统一取真实 usage（见 usage_meter.py），不再用于请求体输入估算。
 """
 import re
 

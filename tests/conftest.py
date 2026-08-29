@@ -87,13 +87,21 @@ def make_user(isolated_db, normal_group):
 
 
 @pytest.fixture()
-def auth_client(isolated_db):
+def auth_client(isolated_db, monkeypatch):
     """
     提供 FastAPI TestClient 与按用户登录的 cookie 工厂。
-    禁用 DSH 自动拉起，避免测试触碰子进程。
+    禁用 DSH 自动拉起，避免测试触碰子进程；usage_meter 替换为不联网的空操作，
+    避免 lifespan 起一条对 DSH_UPSTREAM 的真实重连循环。
     """
     from fastapi.testclient import TestClient
+
     from app.main import app
+    from app.services import usage_meter
+
+    monkeypatch.setattr(usage_meter, "start", lambda: None)
+    async def _noop_stop():
+        return None
+    monkeypatch.setattr(usage_meter, "stop", _noop_stop)
 
     with TestClient(app) as client:
         def login_cookie(user_id: int) -> dict:

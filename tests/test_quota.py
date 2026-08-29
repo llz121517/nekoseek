@@ -95,6 +95,26 @@ class TestRecordUsage:
         assert db_op.get_usage(user["id"], ws)["total_tokens"] == 13
 
 
+class TestRecordGlobalUsage:
+    def test_zero_tokens_noop(self, isolated_db):
+        quota.record_global_usage(0, 0)
+        ws = quota.current_window_start("day")
+        assert db_op.get_usage(0, ws)["total_tokens"] == 0
+
+    def test_records_global_pool_only(self, make_user):
+        # 无归属兜底：只累计全局池，不动任何个人行
+        user = make_user()
+        quota.record_global_usage(input_tokens=10, output_tokens=5)
+        ws = quota.current_window_start("day")
+        assert db_op.get_usage(0, ws)["total_tokens"] == 15
+        assert db_op.get_usage(user["id"], ws)["total_tokens"] == 0
+
+    def test_counts_toward_global_quota(self, isolated_db):
+        quota.set_global_limit(5)
+        quota.record_global_usage(input_tokens=5)
+        assert quota.check_global_quota() is False
+
+
 class TestQuotaChecks:
     def test_unlimited_always_true(self, make_user):
         user = make_user()  # 组与覆写均无限额

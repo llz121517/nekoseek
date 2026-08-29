@@ -85,7 +85,7 @@ STATS_DB_PATH = DB_DIR / "stats.db"
 QUOTA_WINDOW = os.getenv("QUOTA_WINDOW", "day").strip().lower() or "day"
 if QUOTA_WINDOW not in ("5h", "day", "week", "month"):
     raise RuntimeError(f"QUOTA_WINDOW 非法: {QUOTA_WINDOW}")
-# 全局配额上限（token 估算值），0 = 不限
+# 全局配额上限（token 数），0 = 不限
 GLOBAL_QUOTA_LIMIT = int(os.getenv("GLOBAL_QUOTA_LIMIT", "0"))
 # 粗略分词估算权重：CJK 每字 / 拉丁每词
 QUOTA_CJK_PER_CHAR = float(os.getenv("QUOTA_CJK_PER_CHAR", "1.0"))

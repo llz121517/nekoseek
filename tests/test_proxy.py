@@ -1,4 +1,6 @@
 """HTTP 反代的单元测试：mock 上游 httpx，验证请求转发、头重写与面板注入。"""
+import json
+
 import pytest
 import httpx
 
@@ -131,3 +133,50 @@ async def test_rewrites_location_header_pointing_upstream(monkeypatch):
     loc = resp.headers["location"]
     assert loc.startswith("http://testserver")
     assert loc.endswith("/next")
+
+
+class TestPromptAttribution:
+    """prompt 端点的归属捕获：sessionId/childSessionId → 发起者。"""
+
+    @pytest.fixture(autouse=True)
+    def _clean_owners(self):
+        from app.core import attribution
+        attribution._owners.clear()
+        yield
+        attribution._owners.clear()
+
+    def test_session_prompt_records_session_id(self):
+        from app.core import attribution
+        body = json.dumps({
+            "type": "client-request", "rpcId": "r1", "method": "session.prompt",
+            "payload": {"sessionId": "s1", "mode": "queue", "content": []},
+        }).encode()
+        proxy._record_prompt_attribution("/api/session.prompt", body, {"id": 42})
+        assert attribution.resolve_owner("s1") == 42
+
+    def test_subagent_prompt_records_child_session_id(self):
+        from app.core import attribution
+        body = json.dumps({
+            "type": "client-request", "rpcId": "r2", "method": "subagent.prompt",
+            "payload": {"parentSessionId": "p1", "childSessionId": "c1",
+                        "mode": "continuable", "content": []},
+        }).encode()
+        proxy._record_prompt_attribution("/api/subagent.prompt", body, {"id": 7})
+        assert attribution.resolve_owner("c1") == 7
+
+    def test_non_prompt_path_ignored(self):
+        from app.core import attribution
+        body = json.dumps({"payload": {"sessionId": "s9"}}).encode()
+        proxy._record_prompt_attribution("/api/session.history", body, {"id": 1})
+        assert attribution.resolve_owner("s9") is None
+
+    def test_no_user_ignored(self):
+        from app.core import attribution
+        body = json.dumps({"payload": {"sessionId": "s9"}}).encode()
+        proxy._record_prompt_attribution("/api/session.prompt", body, None)
+        assert attribution.resolve_owner("s9") is None
+
+    def test_bad_body_never_raises(self):
+        # 非 JSON / 缺 payload 都必须静默跳过，不阻断转发
+        proxy._record_prompt_attribution("/api/session.prompt", b"not json", {"id": 1})
+        proxy._record_prompt_attribution("/api/session.prompt", b"{}", {"id": 1})

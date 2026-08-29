@@ -38,7 +38,7 @@ from app.core.auth import (
 )
 from app.core.db.init_db import init_db
 from app.core.session import get_session_user_id, start_cleanup_worker
-from app.services import dsh_process
+from app.services import dsh_process, usage_meter
 from app.services.proxy import proxy_webui, probe_upstream
 from app.services.ws_proxy import proxy_ws
 
@@ -61,7 +61,10 @@ async def lifespan(app: FastAPI):
             raise
         if not result.get("running"):
             logger.warning("DSH 自动拉起失败: %s", result)
+    # 常驻用量计量：与 DSH 是否已就绪无关，meter 自带退避重连。
+    usage_meter.start()
     yield
+    await usage_meter.stop()
     if DSH_AUTOSTART:
         dsh_process.stop()
 
@@ -159,7 +162,7 @@ async def ws_tunnel(websocket: WebSocket, path: str):
     if user is None or not user.get("status"):
         await websocket.close(code=4401)
         return
-    await proxy_ws(websocket, "/" + path, user)
+    await proxy_ws(websocket, "/" + path)
 
 
 @app.get("/", dependencies=[Depends(get_current_user_or_redirect)])

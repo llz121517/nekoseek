@@ -149,6 +149,21 @@ def record_usage(user_id: int, input_tokens: int = 0, output_tokens: int = 0) ->
         logger.warning("用量统计记账失败 user_id=%s: %r", user_id, e)
 
 
+def record_global_usage(input_tokens: int = 0, output_tokens: int = 0) -> None:
+    """
+    无归属用量的兜底：只累计全局池（user_id=0），不计任何个人。
+    不写 stats 明细——stats_op 设计上只存个人行，全局值由 SQL 聚合得出。
+    数据库不可用时静默降级（仅记日志），避免计量故障影响代理链路。
+    """
+    if input_tokens <= 0 and output_tokens <= 0:
+        return
+    ws = _window_start_now()
+    try:
+        db_op.add_usage(0, ws, input_tokens, output_tokens)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("全局池记账失败: %r", e)
+
+
 def get_user_usage(user_id: int, window_start: int | None = None) -> dict:
     ws = window_start if window_start is not None else _window_start_now()
     return db_op.get_usage(user_id, ws)
