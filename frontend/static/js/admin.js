@@ -25,6 +25,7 @@ $$('#adminTabs .nav-link').forEach((btn) => {
       case 'invites': loadInvites(); break;
       case 'quota': loadQuota(); break;
       case 'stats': loadStats(); break;
+      case 'logs': loadLogs(); break;
     }
   });
 });
@@ -633,6 +634,89 @@ $('#resetQuota').addEventListener('click', async () => {
   showMsg('quotaMsg', r);
   if (r.code === 1) loadQuota();
 });
+
+// ---- 日志 ----
+const OPLOG_PAGE_SIZE = 50;
+let oplogOffset = 0;
+let oplogTotal = 0;
+
+function loadLogs() {
+  loadOpLogs();
+  loadDshLog();
+}
+
+function fmtTs(ts) {
+  if (!ts) return '-';
+  const d = new Date(ts * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+async function loadOpLogs() {
+  const level = $('#oplogLevel').value;
+  const keyword = $('#oplogKeyword').value.trim();
+  const params = new URLSearchParams({ limit: OPLOG_PAGE_SIZE, offset: oplogOffset });
+  if (level) params.set('level', level);
+  if (keyword) params.set('keyword', keyword);
+
+  const r = await api(`/api/v1/admin/oplogs?${params}`);
+  const rows = r.data?.rows || [];
+  oplogTotal = r.data?.total || 0;
+
+  const tbody = $('#oplogTable tbody');
+  tbody.innerHTML = rows.length
+    ? rows.map((log) => `
+        <tr>
+          <td class="text-body-secondary small">${fmtTs(log.ts)}</td>
+          <td><span class="oplog-level-${esc(log.level)} fw-semibold">${esc(log.level)}</span></td>
+          <td>${esc(log.username || '-')}</td>
+          <td><code>${esc(log.action)}</code></td>
+          <td class="oplog-detail">${esc(log.detail || '')}</td>
+          <td class="text-body-secondary small">${esc(log.ip || '-')}</td>
+        </tr>`).join('')
+    : '<tr><td colspan="6" class="text-body-secondary">暂无日志</td></tr>';
+
+  $('#oplogTotal').textContent = `共 ${oplogTotal} 条 · 第 ${Math.floor(oplogOffset / OPLOG_PAGE_SIZE) + 1} 页`;
+  $('#oplogPrev').disabled = oplogOffset <= 0;
+  $('#oplogNext').disabled = oplogOffset + OPLOG_PAGE_SIZE >= oplogTotal;
+}
+
+$('#oplogSearch').addEventListener('click', () => { oplogOffset = 0; loadOpLogs(); });
+$('#oplogRefresh').addEventListener('click', () => loadOpLogs());
+$('#oplogKeyword').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { oplogOffset = 0; loadOpLogs(); }
+});
+$('#oplogLevel').addEventListener('change', () => { oplogOffset = 0; loadOpLogs(); });
+$('#oplogPrev').addEventListener('click', () => {
+  oplogOffset = Math.max(0, oplogOffset - OPLOG_PAGE_SIZE);
+  loadOpLogs();
+});
+$('#oplogNext').addEventListener('click', () => {
+  if (oplogOffset + OPLOG_PAGE_SIZE < oplogTotal) {
+    oplogOffset += OPLOG_PAGE_SIZE;
+    loadOpLogs();
+  }
+});
+
+async function loadDshLog() {
+  const lines = $('#dshLogLines').value;
+  const view = $('#dshLogView');
+  view.textContent = '加载中…';
+  const r = await api(`/api/v1/admin/dsh/log?lines=${lines}`);
+  const d = r.data || {};
+  if (!d.exists) {
+    $('#dshLogMeta').textContent = '';
+    view.textContent = 'dsh.log 不存在（DSH 可能尚未启动过）';
+    return;
+  }
+  $('#dshLogMeta').textContent = `文件大小 ${(d.size / 1024).toFixed(1)} KB · 显示尾部 ${d.lines?.length || 0} 行`;
+  view.textContent = d.text || '（日志为空）';
+  // 滚动到底部，看最新日志
+  view.scrollTop = view.scrollHeight;
+}
+
+$('#dshLogRefresh').addEventListener('click', loadDshLog);
+$('#dshLogLines').addEventListener('change', loadDshLog);
 
 // ---- 登出 ----
 $('#logoutBtn').addEventListener('click', async (e) => {

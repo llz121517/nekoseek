@@ -75,6 +75,18 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- 操作日志（审计）：记录后台管理操作与登录/登出等关键事件
+CREATE TABLE IF NOT EXISTS op_logs (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts       INTEGER NOT NULL,             -- epoch 秒
+    level    TEXT NOT NULL DEFAULT 'info', -- info / warning / error
+    username TEXT NOT NULL DEFAULT '',     -- 操作者（未登录/系统时为空串）
+    action   TEXT NOT NULL,                -- 操作标识，如 user.update / dsh.start
+    detail   TEXT NOT NULL DEFAULT '',     -- 细节描述
+    ip       TEXT NOT NULL DEFAULT ''      -- 客户端 IP
+);
+CREATE INDEX IF NOT EXISTS idx_op_logs_ts ON op_logs(ts);
 """
 
 CACHE_SQL = """

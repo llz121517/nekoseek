@@ -33,6 +33,8 @@ DSH webui 的**透明反向代理网关**：在 DSH 前端之前叠加一层认�
 - **配额计量**：全局池 + 单用户两级配额，窗口可切换（5h / 天 / 周 / 月）。输入与输出统一取网关常驻 mux 订阅（WS 下行）里的真实 `usage`（含缓存命中的上下文），不做请求体估算；按 HTTP prompt 记录的 sessionId 归属记账，与浏览器是否在线无关。详见「[配额计量口径](#配额计量口径)」。
 - **用量统计**：独立 `stats.db` 按「小时 × 用户」聚合，与配额记账互不影响；后台提供概览、逐小时折线图、按用户排行。
 - **管理后台**：用户 / 权限组 / 邀请码 / 配额设置 / DSH 进程托管 / DeepSeek 余额查询。
+- **操作日志**：后台所有写操作（用户/权限组/邀请码/DSH 启停/API Key/配额）与登录/登出均落库审计（`op_logs` 表），记录操作者、动作、细节、IP 与级别；支持级别/关键词筛选与分页，后台常驻线程定期修剪防膨胀。
+- **日志查看**：后台可直接查看 `dsh.log` 运行日志尾部（可选行数、高效回溯读取，不整文件加载）。
 - **注入面板**：向 DSH 页面注入右下角悬浮卡片，实时显示用户名、窗口、个人与全局配额用量，支持收起与语言跟随（中/英）。
 - **DSH 兼容修复**：注入 JS 手写 UUID polyfill 让 `http://IP`（非安全上下文）也能打开 DSH；改写 `isLoopback` 判定修复局域网设置降级；cordis patch 固定 WebUI 内嵌目录选择器。见「[技术专题](#技术专题)」。
 
@@ -82,7 +84,7 @@ python run.py
 浏览器 ──► NekoSeek (FastAPI) ──► DSH webui
               │
               ├─ /api/v1/auth     登录 / 注册 / 登出 / 状态
-              ├─ /api/v1/admin    用户·权限组·邀请码·配额·统计·DSH 进程
+              ├─ /api/v1/admin    用户·权限组·邀请码·配额·统计·DSH 进程·操作日志
               ├─ /api/v1/panel    注入面板数据
               ├─ /login /admin    自带页面
               ├─ WS /{path}       WebSocket 隧道（纯透传，不计量）
@@ -95,7 +97,7 @@ python run.py
 
 **数据（SQLite，三库分离）**：
 
-- `data.db` — 用户 / 权限组 / 邀请码 / 窗口化配额（`usage_records`，user_id=0 为全局池）/ 运行时设置
+- `data.db` — 用户 / 权限组 / 邀请码 / 窗口化配额（`usage_records`，user_id=0 为全局池）/ 运行时设置 / 操作日志（`op_logs`）
 - `cache.db` — 会话
 - `stats.db` — 详细用量统计（`usage_hourly`，永不被配额重置清空）
 
@@ -178,8 +180,8 @@ DSH web 的目录选择器默认是 `-auto` 行，按环境自动选 `native` �
 ```
 app/
   api/v1/       auth / admin / panel 路由
-  core/         auth / session / quota / attribution(用量归属) / security / tokenize
-  core/db/      db(连接) / db_op(业务CRUD) / stats_op(统计) / init_db(建表播种)
+  core/         auth / session / quota / attribution(用量归属) / audit(操作日志埋点) / security / tokenize
+  core/db/      db(连接) / db_op(业务CRUD) / stats_op(统计) / audit_op(操作日志) / init_db(建表播种)
   services/     proxy(HTTP) / ws_proxy(WS) / usage_meter(常驻计量) / inject(面板+polyfill) / dsh_process(托管) / ds_balance
 frontend/       login / admin 页面 + 静态资源
   static/js     login / admin / common / ebui-panel(注入面板)

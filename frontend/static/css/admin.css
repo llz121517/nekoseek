@@ -55,3 +55,42 @@
 .group-card .card-title {
   word-break: break-word;
 }
+
+/* 日志查看器：等宽字体、固定高度滚动、跟随主题 */
+.log-view {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 480px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-tertiary-bg);
+  color: var(--bs-body-color);
+}
+
+/* 操作日志级别徽标颜色 */
+.oplog-level-info {
+  color: var(--bs-success);
+}
+
+.oplog-level-warning {
+  color: var(--bs-warning);
+}
+
+.oplog-level-error {
+  color: var(--bs-danger);
+}
+
+#oplogTable td {
+  word-break: break-word;
+}
+
+#oplogTable .oplog-detail {
+  font-size: 0.85rem;
+  color: var(--bs-secondary-color);
+}

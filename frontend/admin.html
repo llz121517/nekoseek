@@ -44,6 +44,9 @@
         <li class="nav-item">
           <button class="nav-link" data-page="stats">用量统计</button>
         </li>
+        <li class="nav-item">
+          <button class="nav-link" data-page="logs">日志</button>
+        </li>
       </ul>
       <div class="d-flex align-items-center gap-3 ms-auto">
         <span class="navbar-text text-body-secondary" id="currentUser"></span>
@@ -321,6 +324,71 @@
               <tbody></tbody>
             </table>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 日志 -->
+    <section class="page" id="page-logs">
+      <!-- 操作日志 -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+            <h5 class="card-title mb-0">操作日志</h5>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+              <select class="form-select form-select-sm" id="oplogLevel" style="width:auto">
+                <option value="">全部级别</option>
+                <option value="info">info</option>
+                <option value="warning">warning</option>
+                <option value="error">error</option>
+              </select>
+              <input type="text" class="form-control form-control-sm" id="oplogKeyword" placeholder="搜索 操作者/动作/细节/IP" style="width:220px">
+              <button type="button" class="btn btn-sm btn-outline-primary" id="oplogSearch">查询</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="oplogRefresh">刷新</button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle" id="oplogTable">
+              <thead>
+                <tr>
+                  <th style="width:160px">时间</th>
+                  <th style="width:90px">级别</th>
+                  <th style="width:110px">操作者</th>
+                  <th style="width:140px">动作</th>
+                  <th>细节</th>
+                  <th style="width:130px">IP</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mt-2">
+            <span class="text-body-secondary small" id="oplogTotal"></span>
+            <div class="btn-group btn-group-sm">
+              <button type="button" class="btn btn-outline-secondary" id="oplogPrev">上一页</button>
+              <button type="button" class="btn btn-outline-secondary" id="oplogNext">下一页</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DSH 运行日志 -->
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <h5 class="card-title mb-0">DSH 运行日志（dsh.log）</h5>
+            <div class="d-flex gap-2 align-items-center">
+              <select class="form-select form-select-sm" id="dshLogLines" style="width:auto">
+                <option value="100">100 行</option>
+                <option value="200" selected>200 行</option>
+                <option value="500">500 行</option>
+                <option value="1000">1000 行</option>
+              </select>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="dshLogRefresh">刷新</button>
+            </div>
+          </div>
+          <div class="text-body-secondary small mb-2" id="dshLogMeta"></div>
+          <pre class="log-view" id="dshLogView">加载中…</pre>
         </div>
       </div>
     </section>

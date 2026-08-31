@@ -173,3 +173,74 @@ class TestStatsApi:
         users = r.json()["data"]["users"]
         row = next(u for u in users if u["username"] == "statter")
         assert row["total_tokens"] == 10
+
+
+class TestOpLogsApi:
+    def test_admin_action_is_logged(self, auth_client, admin_cookie):
+        # 触发一次管理操作（建组），应产生一条操作日志
+        auth_client.post("/api/v1/admin/groups", cookies=admin_cookie, json={"name": "logged"})
+        r = auth_client.get("/api/v1/admin/oplogs", cookies=admin_cookie)
+        data = r.json()["data"]
+        assert data["total"] >= 1
+        row = next(l for l in data["rows"] if l["action"] == "group.create")
+        assert row["username"] == "admin"
+        assert "logged" in row["detail"]
+        assert row["level"] == "info"
+
+    def test_login_is_logged(self, auth_client, admin_user):
+        # 走登录接口，成功应记录 auth.login（成功路径无随机延迟）
+        r = auth_client.post("/api/v1/auth/login", json={
+            "username": "admin", "password": "test-admin-pass",
+        })
+        assert r.json()["code"] == 1
+        logs = auth_client.get("/api/v1/admin/oplogs", cookies=auth_client.login_cookie(admin_user["id"])).json()["data"]
+        assert any(l["action"] == "auth.login" and l["username"] == "admin" for l in logs["rows"])
+
+    def test_level_filter(self, auth_client, admin_cookie):
+        from app.core.db import audit_op
+        audit_op.add_op_log(action="x.err", level="error", username="admin")
+        audit_op.add_op_log(action="x.info", level="info", username="admin")
+        r = auth_client.get("/api/v1/admin/oplogs?level=error", cookies=admin_cookie)
+        rows = r.json()["data"]["rows"]
+        assert rows and all(l["level"] == "error" for l in rows)
+        assert any(l["action"] == "x.err" for l in rows)
+
+    def test_keyword_filter(self, auth_client, admin_cookie):
+        from app.core.db import audit_op
+        audit_op.add_op_log(action="user.delete", detail="删除用户 bob (#9)", username="admin")
+        r = auth_client.get("/api/v1/admin/oplogs?keyword=bob", cookies=admin_cookie)
+        rows = r.json()["data"]["rows"]
+        assert rows and all("bob" in l["detail"] for l in rows)
+
+    def test_pagination(self, auth_client, admin_cookie):
+        from app.core.db import audit_op
+        for i in range(5):
+            audit_op.add_op_log(action=f"bulk.{i}", username="admin")
+        r = auth_client.get("/api/v1/admin/oplogs?limit=2&offset=0", cookies=admin_cookie)
+        data = r.json()["data"]
+        assert len(data["rows"]) == 2
+        assert data["total"] >= 5
+
+
+class TestDshLogApi:
+    def test_requires_admin(self, auth_client, make_user):
+        cookie = auth_client.login_cookie(make_user()["id"])
+        r = auth_client.get("/api/v1/admin/dsh/log", cookies=cookie)
+        assert r.status_code == 403
+
+    def test_missing_log_returns_not_exists(self, auth_client, admin_cookie, monkeypatch, tmp_path):
+        from app.services import dsh_process
+        monkeypatch.setattr(dsh_process, "DSH_LOG_PATH", tmp_path / "nope.log")
+        r = auth_client.get("/api/v1/admin/dsh/log", cookies=admin_cookie)
+        assert r.json()["data"]["exists"] is False
+
+    def test_reads_tail(self, auth_client, admin_cookie, monkeypatch, tmp_path):
+        from app.services import dsh_process
+        log = tmp_path / "dsh.log"
+        log.write_text("\n".join(f"line-{i}" for i in range(20)), encoding="utf-8")
+        monkeypatch.setattr(dsh_process, "DSH_LOG_PATH", log)
+        r = auth_client.get("/api/v1/admin/dsh/log?lines=5", cookies=admin_cookie)
+        data = r.json()["data"]
+        assert data["exists"] is True
+        assert len(data["lines"]) == 5
+        assert data["lines"][-1] == "line-19"

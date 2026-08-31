@@ -299,6 +299,32 @@ def _tail_log(lines: int = 20) -> str:
         return ""
 
 
+def read_log_tail(lines: int = 200) -> dict:
+    """
+    高效读取 DSH 日志尾部 N 行（从文件末尾按块回溯，不整文件读入），
+    供管理后台「日志」页展示。返回 {exists, size, lines, text}。
+    """
+    if not DSH_LOG_PATH.exists():
+        return {"exists": False, "size": 0, "lines": [], "text": ""}
+
+    size = DSH_LOG_PATH.stat().st_size
+    lines = max(1, min(int(lines), 2000))
+    # 按块从末尾往回读，直到凑够 lines+1 个换行或读到文件头
+    block = 64 * 1024
+    data = b""
+    with open(DSH_LOG_PATH, "rb") as f:
+        pos = size
+        while pos > 0 and data.count(b"\n") <= lines:
+            read_size = min(block, pos)
+            pos -= read_size
+            f.seek(pos)
+            data = f.read(read_size) + data
+
+    text = data.decode("utf-8", errors="replace")
+    tail = text.splitlines()[-lines:]
+    return {"exists": True, "size": size, "lines": tail, "text": "\n".join(tail)}
+
+
 def start() -> dict:
     """启动 dsh 子进程。若已在运行（本进程或外部）则复用。"""
     global _process

@@ -19,6 +19,7 @@ from app.config import (
     SESSION_SECURE,
 )
 from app.core.auth import get_current_user, get_limiter_key
+from app.core import audit
 from app.core.db import db_op
 from app.core.security import PBKDF2_ITERATIONS, verify_password
 from app.core.session import create_session, delete_session
@@ -83,6 +84,7 @@ async def login(request: Request, response: Response, payload: LoginIn):
     if user is None or not valid or not user.get("status"):
         # 随机 50-149ms 延迟，增加统计时间分析难度；用 asyncio.sleep 避免阻塞事件循环
         await asyncio.sleep(0.05 + secrets.randbelow(100) / 1000)
+        audit.record(request, "auth.login", f"登录失败：{username}", level="warning", username=username)
         return {"code": 0, "msg": "用户名或密码错误"}
 
     sid = create_session(user["id"])
@@ -99,6 +101,7 @@ async def login(request: Request, response: Response, payload: LoginIn):
         samesite=SESSION_SAMESITE,
         secure=SESSION_SECURE,
     )
+    audit.record(request, "auth.login", f"登录成功：{username}", username=username)
     return {"code": 1, "msg": "登录成功"}
 
 
@@ -119,6 +122,7 @@ def _derive_dummy_credentials(username: str) -> tuple[str, str]:
 
 @router.post("/logout")
 async def logout(request: Request, response: Response):
+    audit.record(request, "auth.logout", "用户登出")
     sid = request.cookies.get(SESSION_COOKIE_KEY)
     if sid:
         delete_session(sid)

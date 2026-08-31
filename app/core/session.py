@@ -9,6 +9,7 @@ import uuid
 
 from app.config import SESSION_MAX_AGE, SESSION_CLEANUP_AGE
 from app.core.db.db import get_cache_conn
+from app.core.db import audit_op
 
 
 def create_session(user_id: int) -> str | None:
@@ -61,7 +62,7 @@ def cleanup_expired_sessions() -> int:
 
 def start_cleanup_worker() -> None:
     """
-    后台守护线程，定期清理过期 session。
+    后台守护线程，定期清理过期 session，并顺带修剪操作日志（防无限增长）。
     """
 
     def worker():
@@ -70,6 +71,10 @@ def start_cleanup_worker() -> None:
                 cleanup_expired_sessions()
             except Exception as e:
                 print(f"Session cleanup error: {e}")
+            try:
+                audit_op.prune_op_logs()
+            except Exception as e:
+                print(f"Op-log prune error: {e}")
             time.sleep(SESSION_CLEANUP_AGE)
 
     threading.Thread(target=worker, daemon=True).start()
