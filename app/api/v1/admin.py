@@ -6,12 +6,13 @@ from typing import Optional
 import logging
 import os
 import time
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.config import ROOT
-from app.core import audit, quota
+from app.core import audit, quota, session
 from app.core.auth import admin_required, get_current_user
 from app.core.db import audit_op, db_op, stats_op
 from app.services import dsh_process, ds_balance
@@ -33,13 +34,13 @@ router = APIRouter(
 class GroupIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=32)
     is_admin: bool = False
-    quota_limit: int = 0
+    quota_limit: int = Field(0, ge=0)  # 0 = 不限；负数无意义，拒绝
 
 
 class GroupUpdate(BaseModel):
     name: Optional[str] = None
     is_admin: Optional[bool] = None
-    quota_limit: Optional[int] = None
+    quota_limit: Optional[int] = Field(None, ge=0)
 
 
 @router.get("/groups")
@@ -92,7 +93,7 @@ async def delete_group(request: Request, group_id: int):
 class UserUpdate(BaseModel):
     password: Optional[str] = None
     group_id: Optional[int] = None
-    quota_override: Optional[int] = None
+    quota_override: Optional[int] = Field(None, ge=0)  # None = 清除覆写；负数拒绝
     status: Optional[int] = None
 
 
@@ -151,10 +152,16 @@ async def update_user(request: Request, user_id: int, payload: UserUpdate):
         status=data.get("status"),
         quota_override=data["quota_override"] if "quota_override" in data else db_op.UNSET,
     )
+    # 改密或改权限组后吊销该用户全部既有会话，防止被窃取的旧 sid 继续重放。
+    revoked = 0
+    if ok and (data.get("password") or data.get("group_id") is not None):
+        revoked = session.delete_user_sessions(user_id)
     # 细节里不回显明文密码，仅标注是否重置
     changed = [k for k in ("group_id", "status", "quota_override") if k in data]
     if data.get("password"):
         changed.append("password")
+    if revoked:
+        changed.append(f"revoked_sessions={revoked}")
     audit.record(
         request,
         "user.update",
@@ -218,12 +225,31 @@ class InviteIn(BaseModel):
     max_uses: int = 1
     expires_at: Optional[str] = None
 
+    @field_validator("expires_at")
+    @classmethod
+    def _check_expires_at(cls, v: Optional[str]) -> Optional[str]:
+        """expires_at 必须是可解析的 ISO 8601 日期时间，否则拒绝（防任意串注入/存储型 XSS）。"""
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        try:
+            datetime.fromisoformat(v)
+        except ValueError:
+            raise ValueError("expires_at 必须是 ISO 8601 日期时间格式")
+        return v
+
 
 @router.get("/invites")
 async def list_invites():
     invites = db_op.list_invites()
+    name_by_id = {u["id"]: u["username"] for u in db_op.list_users()}
     for inv in invites:
         inv["used_by_users"] = db_op.list_invite_usernames(inv["id"])
+        # 记录并回显创建账户（created_by 已在生成时落库，此处解析成用户名）
+        creator = inv.get("created_by")
+        inv["created_by_username"] = name_by_id.get(creator, f"#{creator}") if creator else "-"
     return {"code": 1, "msg": "ok", "data": invites}
 
 
@@ -374,7 +400,7 @@ async def set_deepseek_apikey(request: Request, payload: DsKeyIn):
 
 class QuotaSettingsIn(BaseModel):
     window: Optional[str] = None          # 5h | day | week | month
-    global_limit: Optional[int] = None    # 0 = 不限
+    global_limit: Optional[int] = Field(None, ge=0)    # 0 = 不限；负数拒绝
 
 
 @router.get("/quota/settings")

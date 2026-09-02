@@ -2,6 +2,7 @@
 """
 业务 CRUD 封装（直接操作 SQLite，无 ORM）
 """
+import sqlite3
 import time
 from datetime import datetime
 from typing import Any
@@ -301,31 +302,85 @@ def list_invite_usernames(invite_code_id: int) -> list[str]:
     return [r["username"] for r in rows]
 
 
+def _check_invite_row(inv: dict) -> bool:
+    """
+    校验邀请码是否仍可用：未过期（expires_at 为本地时间 ISO 串，解析失败视为不可用）。
+    次数上限不在此判断——由原子 UPDATE 的 WHERE 守卫负责（见 consume_invite）。
+    """
+    if inv.get("expires_at"):
+        try:
+            if datetime.fromisoformat(inv["expires_at"]).timestamp() < time.time():
+                return False
+        except ValueError:
+            return False
+    return True
+
+
+# 原子 +1：WHERE 守卫在写锁下重估 used_count < max_uses，并发下也不会超发。
+_CONSUME_INVITE_SQL = (
+    "UPDATE invite_codes SET used_count = used_count + 1 "
+    "WHERE code = ? AND used_count < max_uses"
+)
+
+
 def consume_invite(code: str) -> dict | None:
     """
-    校验并消费邀请码：未过期、未超用、状态有效则 used_count+1，返回邀请码记录；否则返回 None。
+    校验并消费邀请码：未过期则原子 used_count+1（WHERE 守卫防并发超发），
+    返回邀请码记录；无效/过期/已达上限返回 None。
     """
     conn = get_data_conn()
     row = conn.execute("SELECT * FROM invite_codes WHERE code = ?", (code,)).fetchone()
     if row is None:
         return None
     inv = dict(row)
-    if inv["used_count"] >= inv["max_uses"]:
+    if not _check_invite_row(inv):
         return None
-    if inv.get("expires_at"):
-        try:
-            expires = datetime.fromisoformat(inv["expires_at"])
-            if expires.timestamp() < time.time():
-                return None
-        except ValueError:
-            return None
-    conn.execute(
-        "UPDATE invite_codes SET used_count = used_count + 1 WHERE code = ?",
-        (code,),
-    )
+    cur = conn.execute(_CONSUME_INVITE_SQL, (code,))
     conn.commit()
+    if cur.rowcount != 1:
+        return None
     inv["used_count"] += 1
     return inv
+
+
+def register_with_invite(username: str, password: str, code: str) -> tuple[dict | None, str | None]:
+    """
+    原子注册：同一事务内 消费邀请码 + 创建用户 + 记录使用。
+    任一步失败整体回滚——并发同名注册的 UNIQUE 冲突不会白白消耗邀请码。
+    成功返回 (user, None)；失败返回 (None, 错误消息)。
+    """
+    conn = get_data_conn()
+    # 先算 PBKDF2（耗时），再进事务，缩短写锁持有时间。
+    pwd_hash, salt = hash_password(password)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM invite_codes WHERE code = ?", (code,)).fetchone()
+        if row is None or not _check_invite_row(dict(row)):
+            conn.rollback()
+            return None, "邀请码无效、已过期或已达使用上限"
+        inv = dict(row)
+        cur = conn.execute(_CONSUME_INVITE_SQL, (code,))
+        if cur.rowcount != 1:
+            conn.rollback()
+            return None, "邀请码无效、已过期或已达使用上限"
+        cur = conn.execute(
+            "INSERT INTO users (username, pwd_hash, salt, group_id) VALUES (?, ?, ?, ?)",
+            (username, pwd_hash, salt, inv["group_id"]),
+        )
+        user_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO invite_code_uses (invite_code_id, user_id) VALUES (?, ?)",
+            (inv["id"], user_id),
+        )
+        conn.commit()
+        return get_user_by_id(user_id), None
+    except sqlite3.IntegrityError:
+        # 并发同名注册：UNIQUE 冲突，回滚（邀请码 +1 一并撤销）
+        conn.rollback()
+        return None, "用户名已存在"
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def record_invite_use(invite_code_id: int, user_id: int) -> None:

@@ -29,7 +29,7 @@ from app.config import (
     DSH_AUTOSTART,
 )
 from app.core.db import db_op
-from app.core import quota
+from app.core import quota, replay
 from app.core.auth import (
     RedirectToLogin,
     _resolve_current_user,
@@ -116,18 +116,42 @@ app.include_router(panel_api.router)
 app.state.limiter = auth_api.limiter
 
 
+def _secure_page(path: Path) -> FileResponse:
+    """
+    网关自身页面（/login、/admin）的纵深防御响应头。
+    只作用于网关页面，不下发给透传的 DSH 内容（避免破坏上游前端）。
+    CSP 允许 'unsafe-inline' 是因为页面含内联主题防闪烁脚本；script/img 仍限定 self，
+    可挡外部脚本加载与数据外泄，frame-ancestors/XFO 防点击劫持。
+    """
+    resp = FileResponse(path)
+    resp.headers["Cache-Control"] = "no-store, private"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'"
+    )
+    return resp
+
+
 @app.get("/login")
 async def login_page(request: Request):
     """登录页（公开）。"""
-    return FileResponse(FRONTEND_DIR / "login.html")
+    return _secure_page(FRONTEND_DIR / "login.html")
 
 
 @app.get("/admin", dependencies=[Depends(admin_required)])
 async def admin_page(request: Request):
     """管理后台（仅 admin）。"""
-    response = FileResponse(FRONTEND_DIR / "admin.html")
-    response.headers["Cache-Control"] = "no-store, private"
-    return response
+    return _secure_page(FRONTEND_DIR / "admin.html")
 
 
 @app.get("/favicon.ico")
@@ -187,10 +211,23 @@ async def webui_proxy(request: Request, path: str):
     if _is_prompt_request(request, path):
         # get_current_user_or_redirect 已在 dependencies 里跑过，这里再解一次拿 user
         user = _resolve_current_user(request)
-        if user and (not quota.check_user_quota(user) or not quota.check_global_quota()):
-            return JSONResponse(
-                status_code=429,
-                content={"code": 0, "msg": "配额已用完，请等待窗口重置或联系管理员"},
-            )
+        if user:
+            # 取请求体做指纹/预估；Starlette 会缓存，proxy_webui 再取为同一份。
+            body = await request.body()
+            # 防重放：窗口期内的整包重复直接拒绝（上游 DSH 对 prompt 不做幂等，
+            # 抓包重放会真实消耗模型费用与配额）。
+            fp = replay.fingerprint(user["id"], request.method, path, body)
+            if replay.is_replay(fp):
+                return JSONResponse(
+                    status_code=401,
+                    content={"code": 0, "msg": "重复请求，已忽略"},
+                )
+            # 配额预检 + 短窗口预订：预订先于真实记账生效，挡住并发 prompt 超发。
+            if not quota.check_user_quota(user) or not quota.check_global_quota():
+                return JSONResponse(
+                    status_code=429,
+                    content={"code": 0, "msg": "配额已用完，请等待窗口重置或联系管理员"},
+                )
+            quota.reserve_prompt(user["id"], quota.estimate_prompt_cost(body))
         return await proxy_webui(request, path, user)
     return await proxy_webui(request, path)

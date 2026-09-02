@@ -44,18 +44,15 @@ class LoginIn(BaseModel):
 @router.post("/register")
 async def register(payload: RegisterIn):
     """
-    注册（仅邀请制）：校验并消费邀请码，按邀请码所属权限组入组。
+    注册（仅邀请制）：原子地 消费邀请码 + 创建用户 + 记录使用，按邀请码所属权限组入组。
     """
     username = payload.username.strip()
     if db_op.get_user_by_username(username):
         return {"code": 0, "msg": "用户名已存在"}
 
-    invite = db_op.consume_invite(payload.invite_code)
-    if invite is None:
-        return {"code": 0, "msg": "邀请码无效、已过期或已达使用上限"}
-
-    user = db_op.create_user(username, payload.password, invite["group_id"])
-    db_op.record_invite_use(invite["id"], user["id"])
+    user, err = db_op.register_with_invite(username, payload.password, payload.invite_code)
+    if err is not None:
+        return {"code": 0, "msg": err}
     return {"code": 1, "msg": "注册成功"}
 
 

@@ -359,7 +359,8 @@ async function loadInvites() {
         <td><span class="badge text-bg-warning font-monospace">${esc(inv.code)}</span></td>
         <td>${esc(g?.name || inv.group_id)}</td>
         <td>${inv.used_count}/${inv.max_uses}</td>
-        <td class="text-body-secondary">${inv.expires_at || '永久'}</td>
+        <td class="text-body-secondary">${inv.expires_at ? esc(inv.expires_at) : '永久'}</td>
+        <td class="text-body-secondary">${esc(inv.created_by_username || '-')}</td>
         <td class="text-body-secondary">${(inv.used_by_users || []).map((u) => esc(u)).join(', ') || '-'}</td>
         <td class="table-actions">
           <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete-invite">删除</button>

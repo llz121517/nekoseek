@@ -53,6 +53,16 @@ def delete_session(sid: str) -> None:
     conn.commit()
 
 
+def delete_user_sessions(user_id: int) -> int:
+    """
+    吊销某用户的全部会话（改密/改权限组后调用），返回删除行数。
+    """
+    conn = get_cache_conn()
+    cur = conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+    conn.commit()
+    return cur.rowcount
+
+
 def cleanup_expired_sessions() -> int:
     conn = get_cache_conn()
     cur = conn.execute("DELETE FROM sessions WHERE expire_ts < ?", (time.time(),))

@@ -10,11 +10,11 @@ from app.core.session import get_session_user_id
 
 def get_limiter_key(request: Request) -> str:
     """
-    自定义限流 key：真实连接 IP + User-Agent 前缀，防 X-Forwarded-For 伪造。
+    自定义限流 key：仅用真实连接 IP，防 X-Forwarded-For 伪造。
+    不带 User-Agent——UA 完全由客户端自控，攻击者换 UA 前缀即可获得全新
+    限流额度，纳入 key 等于给爆破留了后门。
     """
-    ip = request.client.host if request.client else "unknown"
-    ua_prefix = (request.headers.get("User-Agent", "") or "")[:20]
-    return f"{ip}|{ua_prefix}"
+    return request.client.host if request.client else "unknown"
 
 
 def _resolve_current_user(request: Request) -> dict | None:

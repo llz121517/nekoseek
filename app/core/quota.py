@@ -4,6 +4,7 @@
 超限统一由调用方处理（代理层返回 429）。
 """
 import logging
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -14,6 +15,55 @@ logger = logging.getLogger("nekoseek.quota")
 
 WINDOW_KINDS = ("5h", "day", "week", "month")
 _FIVE_HOURS_SEC = 5 * 3600
+
+
+# ---------- 短窗口预订（防并发 prompt 绕过预检） ----------
+#
+# 预检查的是"记账之前"的用量，而真实记账依赖 DSH 完成后的 mux 下行帧（异步、滞后）。
+# 用户在检查通过后立即并发多个 prompt，会全部通过预检、事后才超扣——429 形同虚设。
+# 这里在预检通过时写入一条短窗口预订（pending），后续并发检查会把 pending 计入，
+# 从而在记账落库前就先挡住超发。预订到期自动失效（防泄漏），方向是"宁可保守多挡"。
+
+_pending_lock = threading.Lock()
+# user_id -> [(expire_ts, tokens), ...]；user_id=0 表示全局池
+_pending: dict[int, list[tuple[float, int]]] = {}
+_PENDING_TTL = 120.0  # 预订有效期（秒）：覆盖一轮 prompt 从发起到记账的典型时延
+
+
+def _prune_pending(now: float) -> None:
+    for uid in list(_pending):
+        lst = [(e, t) for (e, t) in _pending[uid] if e > now]
+        if lst:
+            _pending[uid] = lst
+        else:
+            del _pending[uid]
+
+
+def estimate_prompt_cost(body: bytes) -> int:
+    """
+    prompt 成本的保守预估，用于预检时的短窗口预订。
+    真实成本在 DSH 完成后才知道；此处按请求体大小估算输入并附加基础输出余量。
+    """
+    return max(1024, len(body) // 4 + 1024)
+
+
+def reserve_prompt(user_id: int, tokens: int) -> None:
+    """预检通过后登记一条短窗口预订（个人 + 全局池各一份）。"""
+    if tokens <= 0:
+        return
+    now = time.time()
+    exp = now + _PENDING_TTL
+    with _pending_lock:
+        _prune_pending(now)
+        _pending.setdefault(user_id, []).append((exp, tokens))
+        _pending.setdefault(0, []).append((exp, tokens))
+
+
+def _pending_sum(user_id: int) -> int:
+    now = time.time()
+    with _pending_lock:
+        _prune_pending(now)
+        return sum(t for (_, t) in _pending.get(user_id, ()))
 
 
 # ---------- 窗口计算 ----------
@@ -184,22 +234,24 @@ def list_current_window_users() -> list[dict]:
 def check_user_quota(user: dict) -> bool:
     """
     用户是否仍有剩余配额。limit 为 0 表示不限。
+    已记账用量 + 在途预订（pending）一起计入，防止并发 prompt 绕过预检。
     """
     limit = get_user_limit(user)
     if limit <= 0:
         return True
-    used = get_user_usage(user["id"])["total_tokens"]
+    used = get_user_usage(user["id"])["total_tokens"] + _pending_sum(user["id"])
     return used < limit
 
 
 def check_global_quota() -> bool:
     """
     全局池是否仍有剩余配额。limit 为 0 表示不限。
+    已记账用量 + 在途预订（pending）一起计入，防止并发 prompt 绕过预检。
     """
     limit = get_global_limit()
     if limit <= 0:
         return True
-    used = get_global_usage()["total_tokens"]
+    used = get_global_usage()["total_tokens"] + _pending_sum(0)
     return used < limit
 
 
