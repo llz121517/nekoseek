@@ -11,6 +11,35 @@ $('#themeToggle').addEventListener('click', () => {
   if (hourlyChart || userChart) loadStats();
 });
 
+// ---- 侧边栏：移动端抽屉 + 桌面折叠记忆 ----
+// 折叠状态挂在 <html> 上（head 内联脚本已做防闪烁预置）
+const rootEl = document.documentElement;
+
+function openSidebar() {
+  rootEl.classList.add('sidebar-open');
+  $('#sidebarToggle').setAttribute('aria-expanded', 'true');
+  $('#sidebarScrim').hidden = false;
+}
+
+function closeSidebar() {
+  rootEl.classList.remove('sidebar-open');
+  $('#sidebarToggle').setAttribute('aria-expanded', 'false');
+  $('#sidebarScrim').hidden = true;
+}
+
+$('#sidebarToggle').addEventListener('click', () => {
+  rootEl.classList.contains('sidebar-open') ? closeSidebar() : openSidebar();
+});
+$('#sidebarScrim').addEventListener('click', closeSidebar);
+
+const SIDEBAR_KEY = 'nekoseek-sidebar';
+$('#sidebarCollapse').setAttribute('aria-pressed', String(rootEl.classList.contains('sidebar-collapsed')));
+$('#sidebarCollapse').addEventListener('click', () => {
+  const collapsed = rootEl.classList.toggle('sidebar-collapsed');
+  $('#sidebarCollapse').setAttribute('aria-pressed', String(collapsed));
+  localStorage.setItem(SIDEBAR_KEY, collapsed ? 'collapsed' : 'expanded');
+});
+
 // ---- Tab 切换 ----
 $$('#adminTabs .nav-link').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -18,6 +47,8 @@ $$('#adminTabs .nav-link').forEach((btn) => {
     $$('section.page').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     $(`#page-${btn.dataset.page}`).classList.add('active');
+    // 移动端选择页面后自动收起抽屉
+    if (window.innerWidth < 992) closeSidebar();
     switch (btn.dataset.page) {
       case 'overview': loadOverview(); break;
       case 'users': loadUsers(); break;
@@ -417,11 +448,10 @@ let hourlyChart = null;
 let userChart = null;
 
 function chartTheme() {
-  // 跟随 data-bs-theme 返回 Chart.js 用的刻度/网格/系列配色
-  const dark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
-  return dark
-    ? { tick: '#c3c2b7', grid: '#2c2c2a', blue: '#3987e5', orange: '#d95926' }
-    : { tick: '#52514e', grid: '#e1e0d9', blue: '#2a78d6', orange: '#eb6834' };
+  // 直接读取 CSS 设计令牌，深浅主题切换时无需手写两套色值
+  const cs = getComputedStyle(document.documentElement);
+  const v = (n) => cs.getPropertyValue(n).trim();
+  return { tick: v('--ns-fg-1'), grid: v('--ns-line'), blue: v('--ns-accent'), orange: v('--ns-warning') };
 }
 
 async function loadStats() {

@@ -14,6 +14,10 @@
         theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       }
       document.documentElement.setAttribute('data-bs-theme', theme);
+      // 侧边栏折叠状态防闪烁：渲染前预置 class
+      if (localStorage.getItem('nekoseek-sidebar') === 'collapsed') {
+        document.documentElement.classList.add('sidebar-collapsed');
+      }
     })();
   </script>
 
@@ -22,41 +26,101 @@
   <link rel="stylesheet" href="/static/css/admin.css">
 </head>
 <body>
-  <nav class="navbar navbar-expand sticky-top bg-body-tertiary border-bottom">
-    <div class="container-fluid">
-      <a class="navbar-brand fw-semibold" href="/admin">NekoSeek 管理后台</a>
-      <ul class="nav nav-tabs card-header-tabs ms-3" id="adminTabs">
-        <li class="nav-item">
-          <button class="nav-link active" data-page="overview">概览</button>
-        </li>
-        <li class="nav-item">
-          <button class="nav-link" data-page="users">用户</button>
-        </li>
-        <li class="nav-item">
-          <button class="nav-link" data-page="groups">权限组</button>
-        </li>
-        <li class="nav-item">
-          <button class="nav-link" data-page="invites">邀请码</button>
-        </li>
-        <li class="nav-item">
-          <button class="nav-link" data-page="quota">配额</button>
-        </li>
-        <li class="nav-item">
-          <button class="nav-link" data-page="stats">用量统计</button>
-        </li>
-        <li class="nav-item">
-          <button class="nav-link" data-page="logs">日志</button>
-        </li>
-      </ul>
-      <div class="d-flex align-items-center gap-3 ms-auto">
-        <span class="navbar-text text-body-secondary" id="currentUser"></span>
-        <button type="button" class="theme-toggle" id="themeToggle" data-theme-icon title="切换主题" aria-label="切换主题"></button>
-        <a href="#" class="btn btn-sm btn-outline-danger" id="logoutBtn">登出</a>
-      </div>
-    </div>
-  </nav>
+  <!-- 移动端顶条：仅 <992px 显示 -->
+  <header class="app-topbar">
+    <button type="button" class="app-icon-btn" id="sidebarToggle" aria-label="打开导航" aria-controls="adminSidebar" aria-expanded="false">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M2 4h12M2 8h12M2 12h12"/>
+      </svg>
+    </button>
+    <span class="app-topbar-title">NekoSeek 管理后台</span>
+  </header>
 
-  <main class="container admin-main">
+  <div class="app-shell">
+    <!-- 侧边栏：桌面固定 / 移动端抽屉 -->
+    <aside class="app-sidebar" id="adminSidebar" aria-label="主导航">
+      <div class="app-sidebar-inner">
+        <div class="app-brand">
+          <a class="app-brand-link" href="/admin">
+            <span class="app-brand-mark" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M8 1 2 5v6l6 4 6-4V5L8 1zm0 2.2L12.8 6 8 8.8 3.2 6 8 3.2zM4 7.3l3 1.9v4.1l-3-2V7.3zm8 0v4l-3 2V9.2l3-1.9z"/>
+              </svg>
+            </span>
+            <span class="app-brand-text">NekoSeek</span>
+          </a>
+          <button type="button" class="app-icon-btn app-collapse-btn" id="sidebarCollapse" aria-label="折叠侧边栏" aria-pressed="false">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M10 3 5 8l5 5"/>
+            </svg>
+          </button>
+        </div>
+
+        <nav class="app-nav">
+          <ul class="nav flex-column" id="adminTabs">
+            <li class="nav-item">
+              <button class="nav-link active" data-page="overview">
+                <span class="nav-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="5" height="6" rx="1"/><rect x="9.5" y="1.5" width="5" height="4" rx="1"/><rect x="9.5" y="8.5" width="5" height="6" rx="1"/><rect x="1.5" y="10.5" width="5" height="4" rx="1"/></svg></span>
+                <span class="nav-text">概览</span>
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-page="users">
+                <span class="nav-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16"><circle cx="5.5" cy="5" r="2.5"/><path d="M1.5 13.5c.5-2.3 2.1-3.5 4-3.5s3.5 1.2 4 3.5"/><circle cx="11.5" cy="5.5" r="2"/><path d="M11 10.2c1.9.2 3.1 1.4 3.5 3.3"/></svg></span>
+                <span class="nav-text">用户</span>
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-page="groups">
+                <span class="nav-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16"><path d="M8 1.5 13 3.5v4c0 3-2.1 5.3-5 6.5-2.9-1.2-5-3.5-5-6.5v-4l5-2z"/><path d="m5.8 8 1.5 1.5 2.9-3"/></svg></span>
+                <span class="nav-text">权限组</span>
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-page="invites">
+                <span class="nav-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16"><path d="M2 5.5A1.5 1.5 0 0 1 3.5 4h9A1.5 1.5 0 0 1 14 5.5v1a1.5 1.5 0 0 0 0 3v1a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 10.5v-1a1.5 1.5 0 0 0 0-3v-1z"/><path d="M9.5 4v1.5M9.5 7.2v1.6M9.5 10.5V12"/></svg></span>
+                <span class="nav-text">邀请码</span>
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-page="quota">
+                <span class="nav-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V8l2.5 1.5"/></svg></span>
+                <span class="nav-text">配额</span>
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-page="stats">
+                <span class="nav-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16"><path d="M2 14h12"/><path d="M4 14V9M8 14V5M12 14V7"/></svg></span>
+                <span class="nav-text">用量统计</span>
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" data-page="logs">
+                <span class="nav-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 16 16"><path d="M4 1.5h5.5L13 5v9.5H4z"/><path d="M9.5 1.5V5H13"/><path d="M6.2 8.2h4.6M6.2 10.7h4.6"/></svg></span>
+                <span class="nav-text">日志</span>
+              </button>
+            </li>
+          </ul>
+        </nav>
+
+        <div class="app-sidebar-foot">
+          <div class="app-user">
+            <span class="app-user-dot" aria-hidden="true"></span>
+            <span id="currentUser" class="app-user-name"></span>
+          </div>
+          <div class="app-sidebar-actions">
+            <button type="button" class="theme-toggle" id="themeToggle" data-theme-icon title="切换主题" aria-label="切换主题"></button>
+            <a href="#" class="btn btn-sm btn-outline-danger" id="logoutBtn">登出</a>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 移动端抽屉遮罩 -->
+    <div class="app-scrim" id="sidebarScrim" hidden></div>
+
+    <!-- 主内容列 -->
+    <main class="container-fluid admin-main">
     <!-- 概览 -->
     <section class="page active" id="page-overview">
       <div class="row row-cols-1 row-cols-md-3 g-3 mb-4" id="overviewStats"></div>
@@ -393,7 +457,8 @@
         </div>
       </div>
     </section>
-  </main>
+    </main>
+  </div><!-- /app-shell -->
 
   <script src="/static/vendor/bootstrap-5.3.3/bootstrap.bundle.min.js"></script>
   <script src="/static/vendor/chart/chart.umd.js"></script>

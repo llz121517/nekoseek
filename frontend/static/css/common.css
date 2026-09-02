@@ -47,20 +47,3 @@
   max-width: 420px;
 }
 
-/* admin 页内容区 */
-.admin-main {
-  padding-top: 1.5rem;
-  padding-bottom: 2rem;
-}
-
-/* 表格操作列最小宽度 */
-.table-actions {
-  white-space: nowrap;
-}
-
-/* 表单标签小字 */
-.form-label-sm {
-  font-size: .75rem;
-  color: var(--bs-secondary-color);
-  margin-bottom: .25rem;
-}
