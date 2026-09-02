@@ -120,7 +120,7 @@
     <div class="app-scrim" id="sidebarScrim" hidden></div>
 
     <!-- 主内容列 -->
-    <main class="container-fluid admin-main">
+    <main class="admin-main">
     <!-- 概览 -->
     <section class="page active" id="page-overview">
       <div class="row row-cols-1 row-cols-md-3 g-3 mb-4" id="overviewStats"></div>
@@ -363,7 +363,7 @@
       <div class="card mb-4">
         <div class="card-body">
           <h5 class="card-title">逐时用量</h5>
-          <div style="position:relative;height:320px">
+          <div class="chart-box" style="height:320px">
             <canvas id="statsHourlyChart"></canvas>
           </div>
           <div class="text-body-secondary small mt-2 d-none" id="statsHourlyEmpty">所选范围暂无用量数据</div>
@@ -373,7 +373,7 @@
       <div class="card">
         <div class="card-body">
           <h5 class="card-title">用户用量排行</h5>
-          <div style="position:relative;height:280px">
+          <div class="chart-box" style="height:280px">
             <canvas id="statsUserChart"></canvas>
           </div>
           <div class="table-responsive mt-3">

@@ -67,7 +67,7 @@
   --ns-danger: #cf3a32;
   --ns-info: #1899b0;
 
-  --ns-scrim: rgba(244, 246, 250, 0.85);
+  --ns-scrim: rgba(244, 246, 250, 0.6);
 
   --bs-body-bg: var(--ns-bg-0);
   --bs-body-color: var(--ns-fg-0);
@@ -348,6 +348,18 @@ body::before {
   padding: 0;
 }
 
+/* ---------- 主内容区（从 common.css 迁入） ---------- */
+.admin-main {
+  margin-left: var(--ns-sidebar-w);
+  padding: var(--ns-space-5) var(--ns-space-4) var(--ns-space-6);
+  transition: margin-left 0.2s ease;
+}
+
+.admin-main > .page {
+  max-width: var(--ns-content-maxw);
+  margin-inline: auto;
+}
+
 /* ---------- 移动端抽屉（<992px） ---------- */
 .app-scrim {
   display: none;
@@ -375,7 +387,8 @@ body::before {
     display: block;
   }
 
-  .admin-main {
+  .admin-main,
+  .sidebar-collapsed .admin-main {
     margin-left: 0;
     padding-top: calc(var(--ns-topbar-h) + var(--ns-space-4));
   }
@@ -410,18 +423,6 @@ body::before {
   }
 }
 
-/* ---------- 主内容区（从 common.css 迁入） ---------- */
-.admin-main {
-  margin-left: var(--ns-sidebar-w);
-  padding: var(--ns-space-5) var(--ns-space-4) var(--ns-space-6);
-  transition: margin-left 0.2s ease;
-}
-
-.admin-main > .page {
-  max-width: var(--ns-content-maxw);
-  margin-inline: auto;
-}
-
 /* 页面显隐（admin.js 依赖） */
 .page {
   display: none;
@@ -432,6 +433,13 @@ body::before {
 }
 
 /* ---------- 组件覆写：弱化边框阴影 ---------- */
+/* flex/grid 子项默认 min-width:auto，会让 Chart.js 画布无法收缩而撑破移动端屏幕 */
+.page,
+.card,
+.card-body {
+  min-width: 0;
+}
+
 .card {
   --bs-card-bg: var(--ns-bg-1);
   background: color-mix(in srgb, var(--ns-bg-1) 92%, transparent);
@@ -470,6 +478,14 @@ body::before {
 .form-control,
 .form-select {
   border-color: var(--ns-line);
+}
+
+/* ---------- Chart.js 图表容器：溢出兜底 ---------- */
+.chart-box {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* ---------- 消息提示 ---------- */
