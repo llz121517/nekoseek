@@ -24,7 +24,7 @@
   --ns-info: #4cc3d9;
 
   /* 背景图遮罩 */
-  --ns-scrim: rgba(10, 13, 18, 0.78);
+  --ns-scrim: rgba(10, 13, 18, 0.68);
 
   /* 映射到 Bootstrap，使 .card/.table/.btn/.form-control 等自动跟随 */
   --bs-body-bg: var(--ns-bg-0);
@@ -67,7 +67,7 @@
   --ns-danger: #cf3a32;
   --ns-info: #1899b0;
 
-  --ns-scrim: rgba(244, 246, 250, 0.6);
+  --ns-scrim: rgba(244, 246, 250, 0.5);
 
   --bs-body-bg: var(--ns-bg-0);
   --bs-body-color: var(--ns-fg-0);
@@ -110,6 +110,10 @@
   --bs-border-radius: var(--ns-radius);
   --bs-border-radius-sm: var(--ns-radius-sm);
   --bs-border-radius-lg: var(--ns-radius-lg);
+
+  /* 表面不透明度（毛玻璃，深浅色统一） */
+  --ns-surface-a: 10%;  /* 侧边栏 / 顶栏 */
+  --ns-card-a: 15%;     /* 卡片 */
 }
 
 /* ---------- 页面背景：二次元壁纸 + 主题遮罩 ---------- */
@@ -140,9 +144,9 @@ body::before {
   align-items: center;
   gap: var(--ns-space-3);
   padding: 0 var(--ns-space-3);
-  background: color-mix(in srgb, var(--ns-bg-1) 85%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--ns-bg-1) var(--ns-surface-a), transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--ns-line);
 }
 
@@ -177,9 +181,9 @@ body::before {
   inset: 0 auto 0 0;
   width: var(--ns-sidebar-w);
   z-index: 1045;
-  background: color-mix(in srgb, var(--ns-bg-1) 82%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--ns-bg-1) var(--ns-surface-a), transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border-right: 1px solid var(--ns-line);
   transition: width 0.2s ease, transform 0.25s ease;
 }
@@ -442,9 +446,9 @@ body::before {
 
 .card {
   --bs-card-bg: var(--ns-bg-1);
-  background: color-mix(in srgb, var(--ns-bg-1) 92%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--ns-bg-1) var(--ns-card-a), transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   border-color: var(--ns-line);
   border-radius: var(--ns-radius-lg);
   box-shadow: none;
