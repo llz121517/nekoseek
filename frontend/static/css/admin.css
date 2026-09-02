@@ -117,6 +117,19 @@
 }
 
 /* ---------- 页面背景：二次元壁纸 + 主题遮罩 ---------- */
+/* 隐藏页面主滚动条（滚动功能保留）：消除高页面出现滚动条时的背景偏移 */
+html,
+body {
+  scrollbar-width: none; /* Firefox */
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* Chrome / Edge / Safari */
+}
+
 body {
   background-color: var(--ns-bg-0);
 }
