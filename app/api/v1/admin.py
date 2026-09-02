@@ -395,6 +395,29 @@ async def set_deepseek_apikey(request: Request, payload: DsKeyIn):
     }
 
 
+# ---------- 站点配置（ICP 备案号，存 settings 表） ----------
+
+
+class IcpIn(BaseModel):
+    icp_number: str = Field("", max_length=64)  # 空串 = 清除，登录页不再显示
+
+
+@router.get("/site/icp")
+async def get_site_icp():
+    """返回当前 ICP 备案号，供后台回显。"""
+    icp = (db_op.get_setting("icp_number", "") or "").strip()
+    return {"code": 1, "msg": "ok", "data": {"icp_number": icp}}
+
+
+@router.put("/site/icp")
+async def set_site_icp(request: Request, payload: IcpIn):
+    """保存 ICP 备案号；空串视为清除。"""
+    icp = payload.icp_number.strip()
+    db_op.set_setting("icp_number", icp)
+    audit.record(request, "site.icp", f"更新 ICP 备案号为 {icp or '（清除）'}")
+    return {"code": 1, "msg": "已保存", "data": {"icp_number": icp}}
+
+
 # ---------- 配额 ----------
 
 

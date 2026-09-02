@@ -68,12 +68,13 @@ async function loadOverview() {
     $('#currentUser').textContent = `当前用户：${esc(chk.data.username)}`;
   }
 
-  const [users, dsh, balance, statsRes, dsKey] = await Promise.all([
+  const [users, dsh, balance, statsRes, dsKey, siteIcp] = await Promise.all([
     api('/api/v1/admin/users'),
     api('/api/v1/admin/dsh/status'),
     api('/api/v1/admin/deepseek/balance'),
     api('/api/v1/admin/stats/overview'),
     api('/api/v1/admin/deepseek/apikey'),
+    api('/api/v1/admin/site/icp'),
   ]);
 
   const list = users.data || [];
@@ -165,6 +166,9 @@ async function loadOverview() {
   } else {
     keyEl.textContent = '未配置';
   }
+
+  const icp = siteIcp.data?.icp_number || '';
+  $('#icpCurrent').textContent = icp || '未配置';
 }
 
 $('#dsKeySave').addEventListener('click', async () => {
@@ -193,6 +197,22 @@ $('#dsKeyToggle').addEventListener('click', () => {
   const show = input.type === 'password';
   input.type = show ? 'text' : 'password';
   $('#dsKeyToggle').textContent = show ? '隐藏' : '显示';
+});
+
+// ICP 备案号：保存到 settings 表；留空即清除，登录页不再显示
+$('#icpSave').addEventListener('click', async () => {
+  const btn = $('#icpSave');
+  btn.disabled = true;
+  const r = await api('/api/v1/admin/site/icp', {
+    method: 'PUT',
+    body: JSON.stringify({ icp_number: $('#icpInput').value.trim() }),
+  });
+  btn.disabled = false;
+  showMsg($('#icpMsg'), r);
+  if (r.code === 1) {
+    $('#icpInput').value = '';
+    loadOverview();
+  }
 });
 
 // DSH 启停：点击即给反馈（禁用按钮 + 状态徽标转「操作中…」），完成后刷新概览。

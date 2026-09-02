@@ -15,6 +15,16 @@ let mode = 'login';
 initTheme();
 document.getElementById('themeToggle').addEventListener('click', toggleTheme);
 
+// ICP 备案号：后台配置了就显示在页脚，点击跳转工信部备案查询页；未配置不显示
+api('/api/v1/site/config').then((r) => {
+  const icp = r.data && r.data.icp_number;
+  if (icp) {
+    const link = document.getElementById('icpLink');
+    link.textContent = icp;
+    link.classList.remove('d-none');
+  }
+});
+
 toggleLink.addEventListener('click', (e) => {
   e.preventDefault();
   mode = mode === 'login' ? 'register' : 'login';

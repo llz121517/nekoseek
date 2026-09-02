@@ -150,6 +150,20 @@
           <div id="dsKeyMsg"></div>
         </div>
       </div>
+
+      <div class="card mt-3">
+        <div class="card-body">
+          <h5 class="card-title">ICP 备案号</h5>
+          <p class="text-body-secondary small mb-2">
+            当前：<span id="icpCurrent">查询中…</span>（配置后显示在登录页底部并可点击跳转，留空保存即清除）
+          </p>
+          <div class="input-group">
+            <input type="text" class="form-control" id="icpInput" placeholder="京ICP备2023012345号-1" maxlength="64" autocomplete="off">
+            <button class="btn btn-primary" type="button" id="icpSave">保存</button>
+          </div>
+          <div id="icpMsg"></div>
+        </div>
+      </div>
     </section>
 
     <!-- 用户 -->

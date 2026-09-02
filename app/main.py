@@ -23,6 +23,7 @@ from starlette.websockets import WebSocket
 from app.api.v1 import admin as admin_api
 from app.api.v1 import auth as auth_api
 from app.api.v1 import panel as panel_api
+from app.api.v1 import site as site_api
 from app.config import (
     TITLE, VERSION, DESCRIPTION,
     DOCS_URL, REDOC_URL, OPENAPI_URL,
@@ -86,6 +87,20 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.middleware("http")
+async def static_no_cache(request: Request, call_next):
+    """
+    前端静态资源禁止启发式缓存：StaticFiles 默认只带 ETag/Last-Modified，
+    浏览器可能在一段时间内直接使用本地旧副本而不回源校验（曾导致 admin.js
+    是旧版、新按钮点了没反应）。no-cache 不禁用缓存，只强制每次回源校验，
+    内容未变仍走 304，开销极小。
+    """
+    resp = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 @app.exception_handler(RedirectToLogin)
 async def redirect_to_login_handler(request: Request, exc: RedirectToLogin):
     return RedirectResponse(url=exc.headers["Location"], status_code=302)
@@ -111,6 +126,7 @@ async def healthz(request: Request):
 
 app.include_router(auth_api.router)
 app.include_router(admin_api.router)
+app.include_router(site_api.router)
 # 面板接口必须在 WS/HTTP catch-all 之前注册，否则会被透传给 DSH。
 app.include_router(panel_api.router)
 app.state.limiter = auth_api.limiter

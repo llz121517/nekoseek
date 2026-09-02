@@ -153,6 +153,17 @@
   color: var(--nk-panel-muted);
 }
 
+/* ICP 备案链接：与版权信息同色调，hover 时显现链接感 */
+#icpLink {
+  color: var(--nk-panel-muted);
+  text-decoration: none;
+}
+
+#icpLink:hover {
+  color: var(--nk-link);
+  text-decoration: underline;
+}
+
 /* 主题切换按钮：在壁纸背景上保持可读 */
 .login-bg .theme-toggle {
   background-color: var(--nk-panel-bg);
